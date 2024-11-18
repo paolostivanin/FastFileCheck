@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.10)
 
-project(FastFileCheck VERSION 1.0.0 LANGUAGES C)
+project(FastFileCheck VERSION 0.99.0 LANGUAGES C)
 
 set(CMAKE_C_STANDARD 11)
 set(CMAKE_C_STANDARD_REQUIRED True)
@@ -29,6 +29,7 @@ include_directories(${XXHASH_INCLUDE_DIRS} ${LMDB_INCLUDE_DIRS})
 add_executable(FastFileCheck
         src/main.c
         src/config.c
+        src/database.c
 )
 
 target_link_libraries(FastFileCheck ${XXHASH_LIBRARIES} ${LMDB_LIBRARIES})

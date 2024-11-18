@@ -44,7 +44,7 @@ collapse_spaces (char *str)
 
 
 static int
-read_config (const char *file_path, Config *config)
+read_config (const char *file_path, ConfigData *config)
 {
     FILE *file = fopen (file_path, "r");
     if (file == NULL) {
@@ -98,7 +98,7 @@ read_config (const char *file_path, Config *config)
                 if (*endptr != '\0') {
                     printf ("Invalid number for db_size_mb: %s. Using the default value instead.\n", value);
                 } else {
-                    config->db_size_mb = t_val;
+                    config->db_size_bytes = (t_val * 1024 * 1024);
                 }
             } else if (strcmp (key, "db_path") == 0 || strcmp (key, "log_path") == 0) {
                 if (strlen (value) > MAX_VALUE_LENGTH) {
@@ -118,10 +118,10 @@ read_config (const char *file_path, Config *config)
 }
 
 
-Config *
+ConfigData *
 load_config (const char *config_path)
 {
-    Config *config_data = (Config *)calloc (1, sizeof(Config));
+    ConfigData *config_data = (ConfigData *)calloc (1, sizeof(ConfigData));
 
     // If no config was specified, we use the default one
     config_path = (config_path == NULL) ? DEFAULT_CONFIG_PATH : config_path;
@@ -129,7 +129,7 @@ load_config (const char *config_path)
     // Set default configuration values
     config_data->threads = sysconf(_SC_NPROCESSORS_ONLN) - 1;
     config_data->usable_ram = (sysconf(_SC_AVPHYS_PAGES) * sysconf(_SC_PAGE_SIZE) * DEFAULT_RAM_USAGE_PERCENT) / 100;
-    config_data->db_size_mb = DEFAULT_DB_SIZE_IN_BYTES;
+    config_data->db_size_bytes = DEFAULT_DB_SIZE_IN_BYTES;
     config_data->db_path = strdup (DEFAULT_DB_PATH);
     config_data->log_path = strdup (DEFAULT_LOG_PATH);
 
@@ -146,7 +146,7 @@ load_config (const char *config_path)
 
 
 void
-free_config (Config *config)
+free_config (ConfigData *config)
 {
     if (config) {
         free (config->db_path);

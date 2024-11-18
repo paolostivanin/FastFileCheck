@@ -16,13 +16,13 @@ typedef enum {
 typedef struct config_t {
     unsigned int threads;
     unsigned long usable_ram;
-    unsigned int db_size_mb;
+    unsigned int db_size_bytes;
     char *db_path;
     char *log_path;
 
     Mode mode;
-} Config;
+} ConfigData;
 
-Config *load_config (const char *config_path);
+ConfigData *load_config (const char *config_path);
 
-void free_config (Config *config);
+void free_config (ConfigData *config);

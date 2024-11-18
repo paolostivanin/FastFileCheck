@@ -1,7 +1,7 @@
 #include <stdio.h>
 #include <string.h>
 #include "config.h"
-
+#include "database.h"
 
 static void
 usage (const char *prog_name)
@@ -21,8 +21,11 @@ int main(int argc, char *argv[]) {
         return -1;
     }
 
-    Config *config_data = load_config (config_path);
+    ConfigData *config_data = load_config (config_path);
     config_data->mode = (strcmp (argv[1], "add") == 0 || strcmp (argv[2], "add") == 0) ? MODE_ADD : MODE_CHECK;
+
+    DatabaseData *db_data = init_db (config_data);
+    if (db_data == NULL) return -1;
 
     free_config (config_data);
 
