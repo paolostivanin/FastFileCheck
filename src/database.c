@@ -4,6 +4,15 @@
 #include "config.h"
 #include "database.h"
 
+void
+free_db (DatabaseData *db_data)
+{
+    mdb_dbi_close (db_data->env, db_data->dbi);
+    mdb_env_close (db_data->env);
+    g_free (db_data);
+}
+
+
 DatabaseData *
 init_db (ConfigData *config_data)
 {

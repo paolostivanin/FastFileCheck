@@ -3,11 +3,8 @@
 #include "database.h"
 #include "directory.h"
 #include "queue.h"
+#include "process_file.h"
 
-typedef struct consumer_data_t {
-    GThreadPool *thread_pool;
-    FileQueueData *file_queue_data;
-} ConsumerData;
 
 static void
 usage (const char *prog_name)
@@ -22,8 +19,8 @@ worker_thread (gpointer data,
                gpointer user_data)
 {
     gchar *file_path = (gchar *)data;
-    FileQueueData *file_queue_data = (FileQueueData *)user_data;
-    // TODO: Process the file here
+    ConsumerData *consumer_data = (ConsumerData *)user_data;
+    process_file (file_path, consumer_data);
 }
 
 
@@ -78,17 +75,20 @@ main (int argc, char *argv[])
     FileQueueData *file_queue_data = init_file_queue (config_data->usable_ram);
     file_queue_data->scanning_done = FALSE;
 
+    ConsumerData *consumer_data = g_new0 (ConsumerData, 1);
+    consumer_data->file_queue_data = file_queue_data;
+    consumer_data->config_data = config_data;
+    consumer_data->db_data = db_data;
+
     GError *error = NULL;
-    GThreadPool *thread_pool = g_thread_pool_new (worker_thread, file_queue_data, (gint32)config_data->threads_count, FALSE, &error);
+    GThreadPool *thread_pool = g_thread_pool_new (worker_thread, consumer_data, (gint32)config_data->threads_count, FALSE, &error);
     if (error != NULL) {
         g_printerr ("Error creating the thread pool: %s\n", error->message);
         g_error_free (error);
         return -1;
     }
-
-    ConsumerData *consumer_data = g_new0 (ConsumerData, 1);
     consumer_data->thread_pool = thread_pool;
-    consumer_data->file_queue_data = file_queue_data;
+
     GThread *consumer_thread = g_thread_new ("queue-consumer", queue_consumer, consumer_data);
 
     process_directory (argv[2], file_queue_data);
@@ -97,10 +97,8 @@ main (int argc, char *argv[])
     g_thread_pool_free (thread_pool, FALSE, TRUE);
 
     free_file_queue (file_queue_data);
-
-    mdb_env_close (db_data->env);
-
     free_config (config_data);
+    free_db (db_data);
 
     g_free (consumer_data);
 

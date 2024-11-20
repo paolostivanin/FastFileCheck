@@ -6,8 +6,8 @@
 static size_t
 get_free_memory (void)
 {
-    long pages = sysconf(_SC_AVPHYS_PAGES);
-    long pagesize = sysconf(_SC_PAGE_SIZE);
+    long pages = sysconf (_SC_AVPHYS_PAGES);
+    long pagesize = sysconf (_SC_PAGE_SIZE);
     if (pages == -1 || pagesize == -1) {
         g_print ("Warning: Could not determine available memory, using 1GB default\n");
         return 1024 * 1024 * 1024; // Default to 1GB
@@ -51,6 +51,7 @@ load_config (const char *config_path)
         t_val = DEFAULT_RAM_USAGE_PERCENT;
     }
     config_data->usable_ram = get_free_memory () * t_val / 100;
+    config_data->max_ram_per_thread = config_data->usable_ram / config_data->threads_count;
     g_clear_error (&config_error);
 
     t_val = g_key_file_get_integer (key_file, "database", "db_size_mb", NULL);

@@ -9,7 +9,7 @@
 #define DEFAULT_DB_SIZE_IN_MB       15
 #define DEFAULT_RAM_USAGE_PERCENT   70
 
-typedef enum {
+typedef enum mode_t {
     MODE_ADD = 1,
     MODE_CHECK = 2,
     MODE_UPDATE = 3
@@ -21,6 +21,7 @@ typedef struct config_t {
     guint db_size_bytes;
     gchar *db_path;
     gchar *log_path;
+    guint64 max_ram_per_thread;
 
     Mode mode;
 } ConfigData;
