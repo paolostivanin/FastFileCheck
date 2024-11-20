@@ -35,7 +35,14 @@ load_config (const char *config_path)
     gint t_val;
     t_val = g_key_file_get_integer (key_file, "settings", "threads_count", &config_error);
     guint usable_threads = sysconf(_SC_NPROCESSORS_ONLN) - 1;
-    config_data->threads_count = (config_error->code == G_KEY_FILE_ERROR_KEY_NOT_FOUND || t_val < 0 || t_val > (gint)(usable_threads + 1)) ? usable_threads : t_val;
+    if (config_error->code == G_KEY_FILE_ERROR_KEY_NOT_FOUND || t_val < 0 || t_val > (gint)(usable_threads + 1)) {
+        g_print ("Invalid threads_count value: %d. Using the default value instead.\n", t_val);
+        config_data->threads_count = usable_threads;
+    } else {
+        config_data->threads_count = t_val;
+    }
+    // Reserve one thread for the queue-consumer thread
+    config_data->threads_count = (config_data->threads_count > 2) ? config_data->threads_count-1 : config_data->threads_count;
     g_clear_error (&config_error);
 
     t_val = g_key_file_get_integer (key_file, "settings", "ram_usage_percent", &config_error);

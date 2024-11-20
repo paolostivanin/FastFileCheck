@@ -5,6 +5,7 @@
 typedef struct file_queue_t {
     GAsyncQueue *queue;
     gint max_size;
+    gboolean scanning_done;
 } FileQueueData;
 
 FileQueueData *init_file_queue (guint64 usable_ram);

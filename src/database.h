@@ -1,7 +1,5 @@
 #pragma once
 
-#define MAX_FILENAME_LEN 256
-
 typedef struct database_t {
     MDB_env *env;
     MDB_dbi dbi;

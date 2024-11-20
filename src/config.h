@@ -11,7 +11,8 @@
 
 typedef enum {
     MODE_ADD = 1,
-    MODE_CHECK = 2
+    MODE_CHECK = 2,
+    MODE_UPDATE = 3
 } Mode;
 
 typedef struct config_t {

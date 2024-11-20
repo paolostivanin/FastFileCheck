@@ -63,6 +63,9 @@ process_directory (const gchar   *dir_path,
     ctx->depth = 0;
 
     scan_dir (dir_path, ctx, file_queue_data);
+    g_async_queue_push (file_queue_data->queue, NULL);
+
+    file_queue_data->scanning_done = TRUE;
 
     g_hash_table_destroy (ctx->visited);
 }
