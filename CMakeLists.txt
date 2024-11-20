@@ -23,15 +23,19 @@ set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} ${COMMON_C_FLAGS}")
 find_package(PkgConfig REQUIRED)
 pkg_check_modules(XXHASH REQUIRED libxxhash)
 pkg_check_modules(LMDB REQUIRED lmdb)
+pkg_check_modules(GLIB2 REQUIRED glib-2.0>=2.68.0)
+#pkg_check_modules(GIO REQUIRED gio-2.0>=2.68.0)
 
-include_directories(${XXHASH_INCLUDE_DIRS} ${LMDB_INCLUDE_DIRS})
+include_directories(${XXHASH_INCLUDE_DIRS} ${LMDB_INCLUDE_DIRS} ${GLIB2_INCLUDE_DIRS})
 
 add_executable(FastFileCheck
         src/main.c
         src/config.c
         src/database.c
+        src/directory.c
+        src/queue.c
 )
 
-target_link_libraries(FastFileCheck ${XXHASH_LIBRARIES} ${LMDB_LIBRARIES})
+target_link_libraries(FastFileCheck ${XXHASH_LIBRARIES} ${LMDB_LIBRARIES} ${GLIB2_LIBRARIES})
 
 target_compile_options(FastFileCheck PRIVATE -Wall -Wextra -O3)
