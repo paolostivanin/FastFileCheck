@@ -1,27 +1,26 @@
 #include <glib.h>
 #include "directory.h"
 
-#define MAX_RECURSION_DEPTH 10
 
 typedef struct process_context_t {
     GHashTable *visited; // Tracks visited directories to prevent loops
-    gint depth;          // Current recursion depth
+    guint depth;          // Current recursion depth
 } ProcessContext;
 
 
 static void
 scan_dir (const gchar    *dir_path,
+          guint           max_depth,
           ProcessContext *ctx,
           FileQueueData  *file_queue_data)
 {
-    if (ctx->depth > MAX_RECURSION_DEPTH) {
-        g_print ("Max recursion depth exceeded at: %s", dir_path);
+    if (ctx->depth > max_depth) {
+        g_print ("Max recursion depth exceeded at: %s\n", dir_path);
         return;
     }
 
     // Check if the directory has been visited
     if (g_hash_table_contains(ctx->visited, dir_path)) {
-        g_print ("Skipping already visited directory: %s", dir_path);
         return;
     }
 
@@ -30,7 +29,7 @@ scan_dir (const gchar    *dir_path,
 
     GDir *dir = g_dir_open(dir_path, 0, NULL);
     if (!dir) {
-        g_print ("Failed to open directory: %s", dir_path);
+        g_print ("Failed to open directory: %s\n", dir_path);
         return;
     }
 
@@ -40,7 +39,7 @@ scan_dir (const gchar    *dir_path,
 
         if (g_file_test(full_path, G_FILE_TEST_IS_DIR)) {
             ctx->depth++;
-            scan_dir (full_path, ctx, file_queue_data); // Recurse into subdirectory
+            scan_dir (full_path, max_depth, ctx, file_queue_data); // Recurse into subdirectory
             ctx->depth--;
         } else if (g_file_test(full_path, G_FILE_TEST_IS_REGULAR)) {
             while (g_async_queue_length (file_queue_data->queue) >= file_queue_data->max_size) {
@@ -56,14 +55,14 @@ scan_dir (const gchar    *dir_path,
 
 void
 process_directory (const gchar   *dir_path,
+                   guint          max_depth,
                    FileQueueData *file_queue_data)
 {
     ProcessContext *ctx = g_new0 (ProcessContext, 1);
     ctx->visited = g_hash_table_new_full (g_str_hash, g_str_equal, g_free, NULL);
     ctx->depth = 0;
 
-    scan_dir (dir_path, ctx, file_queue_data);
-    g_async_queue_push (file_queue_data->queue, NULL);
+    scan_dir (dir_path, max_depth, ctx, file_queue_data);
 
     file_queue_data->scanning_done = TRUE;
 

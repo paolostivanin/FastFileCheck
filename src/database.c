@@ -32,10 +32,11 @@ init_db (ConfigData *config_data)
         return NULL;
     }
 
-    rc = mdb_env_open (db_data->env, config_data->db_path, 0, 0664);
+    rc = mdb_env_open (db_data->env, config_data->db_path, 0, 0644);
     if (rc != 0) {
         perror ("Error in mdb_env_open");
-        free (db_data);
+        mdb_env_close (db_data->env);
+        g_free (db_data);
         return NULL;
     }
 

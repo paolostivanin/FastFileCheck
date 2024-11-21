@@ -91,7 +91,7 @@ main (int argc, char *argv[])
 
     GThread *consumer_thread = g_thread_new ("queue-consumer", queue_consumer, consumer_data);
 
-    process_directory (argv[2], file_queue_data);
+    process_directory (argv[2], config_data->max_recursion_depth, file_queue_data);
 
     g_thread_join (consumer_thread);
     g_thread_pool_free (thread_pool, FALSE, TRUE);

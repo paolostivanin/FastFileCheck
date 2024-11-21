@@ -49,26 +49,26 @@ compute_hash (const char *filepath,
                                      10 * 1024 * 1024,
                                     128 * 1024 * 1024);
 
-    guchar *buffer = g_malloc(buffer_size);
+    guchar *buffer = g_malloc0 (buffer_size);
 
-    XXH3_state_t *state = XXH3_createState();
-    XXH3_64bits_reset(state);
+    XXH3_state_t *state = XXH3_createState ();
+    XXH3_64bits_reset (state);
 
     gssize bytes_read;
-    while ((bytes_read = g_input_stream_read(G_INPUT_STREAM(input_stream),
-                                             buffer, buffer_size, NULL, NULL)) > 0) {
-        XXH3_64bits_update(state, buffer, bytes_read);
+    while ((bytes_read = g_input_stream_read (G_INPUT_STREAM(input_stream),
+                                              buffer, buffer_size, NULL, NULL)) > 0) {
+        XXH3_64bits_update (state, buffer, bytes_read);
     }
 
     XXH64_hash_t hash = 0;
     if (bytes_read >= 0) {
-        hash = XXH3_64bits_digest(state);
+        hash = XXH3_64bits_digest (state);
     }
 
-    g_free(buffer);
-    XXH3_freeState(state);
-    g_object_unref(input_stream);
-    g_object_unref(file);
+    g_free (buffer);
+    XXH3_freeState (state);
+    g_object_unref (input_stream);
+    g_object_unref (file);
 
     return hash;
 }

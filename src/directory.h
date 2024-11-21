@@ -2,4 +2,4 @@
 
 #include "queue.h"
 
-void process_directory (const gchar *dir_path, FileQueueData *file_queue_data);
+void process_directory (const gchar *dir_path, guint max_depth, FileQueueData *file_queue_data);

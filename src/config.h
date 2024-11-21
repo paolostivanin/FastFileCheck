@@ -8,6 +8,7 @@
 #define DEFAULT_LOG_PATH            "/var/log/ffc/ffc.log"
 #define DEFAULT_DB_SIZE_IN_MB       15
 #define DEFAULT_RAM_USAGE_PERCENT   70
+#define DEFAULT_MAX_RECURSION_DEPTH 10
 
 typedef enum mode_t {
     MODE_ADD = 1,
@@ -22,6 +23,7 @@ typedef struct config_t {
     gchar *db_path;
     gchar *log_path;
     guint64 max_ram_per_thread;
+    guint max_recursion_depth;
 
     Mode mode;
 } ConfigData;
