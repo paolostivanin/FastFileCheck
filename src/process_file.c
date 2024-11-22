@@ -14,6 +14,11 @@ typedef struct file_entry_t {
     blkcnt_t block_count;
 } FileEntryData;
 
+typedef struct file_info_t {
+    struct stat st;
+    guint64 hash;
+} FileInfo;
+
 
 static guint64
 compute_hash (const char *filepath,
@@ -99,196 +104,130 @@ compute_hash (const char *filepath,
 }
 
 
-static void
-add_to_db (const char *filepath,
-           const guint64 per_thread_ram,
-           DatabaseData *db_data)
+static gboolean
+get_file_info (const char *filepath,
+              const guint64 per_thread_ram,
+              FileInfo *info)
 {
-    struct stat st;
-    if (stat (filepath, &st) != 0) {
+    if (stat (filepath, &info->st) != 0) {
         g_print ("Could not stat file: %s\n", filepath);
-        return;
+        return FALSE;
     }
 
-    const guint64 hash = compute_hash (filepath, per_thread_ram);
-    if (hash == 0) {
-        g_print ("Could not compute hash for file: %s\n", filepath);
-        return;
+    info->hash = compute_hash (filepath, per_thread_ram);
+    if (info->hash == 0) {
+        g_print("Could not compute hash for file: %s\n", filepath);
+        return FALSE;
     }
 
-    FileEntryData file_entry_data = {
+    return TRUE;
+}
+
+static FileEntryData
+create_entry_data (const char *filepath, const FileInfo *info)
+{
+    return (FileEntryData) {
         .filepath = g_strdup (filepath),
-        .hash = hash,
-        .inode = st.st_ino,
-        .link_count = st.st_nlink,
-        .block_count = st.st_blocks
+        .hash = info->hash,
+        .inode = info->st.st_ino,
+        .link_count = info->st.st_nlink,
+        .block_count = info->st.st_blocks
     };
-
-    MDB_txn *txn;
-    MDB_val key, data;
-    int rc = mdb_txn_begin (db_data->env, NULL, 0, &txn);
-    if (rc != 0) {
-        g_print ("mdb_txn_begin failed: %s\n", mdb_strerror (rc));
-        g_free (file_entry_data.filepath);
-        return;
-    }
-
-    key.mv_size = g_utf8_strlen (filepath, -1) + 1;
-    key.mv_data = (void*)filepath;
-    data.mv_size = sizeof(FileEntryData);
-    data.mv_data = &file_entry_data;
-
-    rc = mdb_put (txn, db_data->dbi, &key, &data, 0);
-    if (rc != 0) {
-        g_print ("mdb_put failed: %s\n", mdb_strerror (rc));
-        mdb_txn_abort (txn);
-        g_free (file_entry_data.filepath);
-        return;
-    }
-
-    mdb_txn_commit (txn);
-    g_free (file_entry_data.filepath);
 }
 
-
-static void
-check_db (const char *filepath,
-          const guint64 per_thread_ram,
-          DatabaseData *db_data)
+static gboolean
+handle_db_operation (const char *filepath,
+                     const FileInfo *info,
+                     DatabaseData *db_data,
+                     Mode op)
 {
-    struct stat st;
-    if (stat (filepath, &st) != 0) {
-        g_print ("Could not stat file: %s\n", filepath);
-        return;
-    }
-
-    const guint64 current_hash = compute_hash (filepath, per_thread_ram);
-    if (current_hash == 0) {
-        g_print ("Could not compute hash for file: %s\n", filepath);
-        return;
-    }
-
     MDB_txn *txn;
     MDB_val key, data;
-    int rc = mdb_txn_begin (db_data->env, NULL, MDB_RDONLY, &txn);
+    int flags = (op == MODE_ADD) ? MDB_RDONLY : 0;
+
+    int rc = mdb_txn_begin (db_data->env, NULL, flags, &txn);
     if (rc != 0) {
-        g_print ("mdb_txn_begin failed: %s\n", mdb_strerror (rc));
-        return;
+        g_print ("mdb_txn_begin failed: %s\n", mdb_strerror(rc));
+        return FALSE;
     }
 
     key.mv_size = g_utf8_strlen (filepath, -1) + 1;
     key.mv_data = (void*)filepath;
 
-    rc = mdb_get (txn, db_data->dbi, &key, &data);
-    if (rc != 0) {
-        g_print ("File not found in database: %s\n", filepath);
-        mdb_txn_abort (txn);
-        return;
-    }
-
-    FileEntryData *stored_data = (FileEntryData *)data.mv_data;
-
-    if (current_hash != stored_data->hash) {
-        g_print ("Hash mismatch for %s\n", filepath);
-    }
-    if (st.st_ino != stored_data->inode) {
-        g_print ("Inode changed for %s\n", filepath);
-    }
-    if (st.st_nlink != stored_data->link_count) {
-        g_print ("Link count changed for %s\n", filepath);
-    }
-    if (st.st_blocks != stored_data->block_count) {
-        g_print ("Block count changed for %s\n", filepath);
-    }
-
-    mdb_txn_abort (txn);
-}
-
-
-static void
-update_db (const char *filepath,
-           const guint64 per_thread_ram,
-           DatabaseData *db_data)
-{
-    struct stat st;
-    if (stat (filepath, &st) != 0) {
-        g_print ("Could not stat file: %s\n", filepath);
-        return;
-    }
-
-    const guint64 current_hash = compute_hash (filepath, per_thread_ram);
-    if (current_hash == 0) {
-        g_print ("Could not compute hash for file: %s\n", filepath);
-        return;
-    }
-
-    MDB_txn *txn;
-    MDB_val key, data;
-    int rc = mdb_txn_begin (db_data->env, NULL, 0, &txn);
-    if (rc != 0) {
-        g_print ("mdb_txn_begin failed: %s\n", mdb_strerror (rc));
-        return;
-    }
-
-    key.mv_size = g_utf8_strlen (filepath, -1) + 1;
-    key.mv_data = (void*)filepath;
-
-    rc = mdb_get (txn, db_data->dbi, &key, &data);
-    if (rc == MDB_NOTFOUND) {
-        // File not in DB - add it
-        FileEntryData file_entry_data = {
-            .filepath = g_strdup (filepath),
-            .hash = current_hash,
-            .inode = st.st_ino,
-            .link_count = st.st_nlink,
-            .block_count = st.st_blocks
-        };
-
+    if (op == MODE_ADD) {
+        FileEntryData entry = create_entry_data (filepath, info);
         data.mv_size = sizeof(FileEntryData);
-        data.mv_data = &file_entry_data;
+        data.mv_data = &entry;
 
-        rc = mdb_put (txn, db_data->dbi, &key, &data, 0);
+        rc = mdb_put(txn, db_data->dbi, &key, &data, 0);
         if (rc != 0) {
-            g_print ("mdb_put failed: %s\n", mdb_strerror (rc));
-            mdb_txn_abort (txn);
-            g_free (file_entry_data.filepath);
-            return;
+            g_print("mdb_put failed: %s\n", mdb_strerror(rc));
+            mdb_txn_abort(txn);
+            g_free(entry.filepath);
+            return FALSE;
         }
-        g_free (file_entry_data.filepath);
-    } else if (rc == 0) {
-        // File exists - check if update needed
-        FileEntryData *stored_data = (FileEntryData *)data.mv_data;
-        if (current_hash != stored_data->hash ||
-            st.st_ino != stored_data->inode ||
-            st.st_nlink != stored_data->link_count ||
-            st.st_blocks != stored_data->block_count) {
-
-            FileEntryData file_entry_data = {
-                .filepath = g_strdup (filepath),
-                .hash = current_hash,
-                .inode = st.st_ino,
-                .link_count = st.st_nlink,
-                .block_count = st.st_blocks
-            };
-
-            data.mv_size = sizeof(FileEntryData);
-            data.mv_data = &file_entry_data;
-
-            rc = mdb_put (txn, db_data->dbi, &key, &data, 0);
-            if (rc != 0) {
-                g_print ("mdb_put failed: %s\n", mdb_strerror (rc));
-                mdb_txn_abort (txn);
-                g_free (file_entry_data.filepath);
-                return;
-            }
-            g_free (file_entry_data.filepath);
-        }
+        g_free(entry.filepath);
     } else {
-        g_print ("mdb_get failed: %s\n", mdb_strerror (rc));
-        mdb_txn_abort (txn);
-        return;
+        rc = mdb_get(txn, db_data->dbi, &key, &data);
+        if (rc != 0) {
+            if (rc != MDB_NOTFOUND || op != MODE_UPDATE) {
+                g_print("File not found in database: %s\n", filepath);
+                mdb_txn_abort(txn);
+                return FALSE;
+            }
+
+            // For update operation, add if not found
+            FileEntryData entry = create_entry_data(filepath, info);
+            data.mv_size = sizeof(FileEntryData);
+            data.mv_data = &entry;
+
+            rc = mdb_put(txn, db_data->dbi, &key, &data, 0);
+            if (rc != 0) {
+                g_print("mdb_put failed: %s\n", mdb_strerror(rc));
+                mdb_txn_abort(txn);
+                g_free(entry.filepath);
+                return FALSE;
+            }
+            g_free(entry.filepath);
+        } else {
+            FileEntryData *stored = (FileEntryData *)data.mv_data;
+            if (op == MODE_CHECK) {
+                if (info->hash != stored->hash)
+                    g_print("Hash mismatch for %s\n", filepath);
+                if (info->st.st_ino != stored->inode)
+                    g_print("Inode changed for %s\n", filepath);
+                if (info->st.st_nlink != stored->link_count)
+                    g_print("Link count changed for %s\n", filepath);
+                if (info->st.st_blocks != stored->block_count)
+                    g_print("Block count changed for %s\n", filepath);
+            } else if (op == MODE_UPDATE &&
+                      (info->hash != stored->hash ||
+                       info->st.st_ino != stored->inode ||
+                       info->st.st_nlink != stored->link_count ||
+                       info->st.st_blocks != stored->block_count)) {
+
+                FileEntryData entry = create_entry_data(filepath, info);
+                data.mv_size = sizeof(FileEntryData);
+                data.mv_data = &entry;
+
+                rc = mdb_put(txn, db_data->dbi, &key, &data, 0);
+                if (rc != 0) {
+                    g_print("mdb_put failed: %s\n", mdb_strerror(rc));
+                    mdb_txn_abort(txn);
+                    g_free(entry.filepath);
+                    return FALSE;
+                }
+                g_free(entry.filepath);
+            }
+        }
     }
-    mdb_txn_commit (txn);
+
+    if (op == MODE_CHECK)
+        mdb_txn_abort(txn);
+    else
+        mdb_txn_commit(txn);
+
+    return TRUE;
 }
 
 
@@ -296,13 +235,8 @@ void
 process_file (const gchar  *file_path,
               ConsumerData *consumer_data)
 {
-    if (consumer_data->config_data->mode == MODE_ADD) {
-        add_to_db (file_path, consumer_data->config_data->max_ram_per_thread, consumer_data->db_data);
-    } else if (consumer_data->config_data->mode == MODE_CHECK) {
-        check_db (file_path, consumer_data->config_data->max_ram_per_thread, consumer_data->db_data);
-    } else if (consumer_data->config_data->mode == MODE_UPDATE) {
-        update_db (file_path, consumer_data->config_data->max_ram_per_thread, consumer_data->db_data);
-    } else {
-        g_print ("Unknown mode: %d\n", consumer_data->config_data->mode);
+    FileInfo info;
+    if (get_file_info (file_path, consumer_data->config_data->max_ram_per_thread, &info)) {
+        handle_db_operation (file_path, &info, consumer_data->db_data, consumer_data->config_data->mode);
     }
 }
