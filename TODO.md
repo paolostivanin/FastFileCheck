@@ -1,0 +1,3 @@
+- [ ] implement logging to file
+- [ ] implement directory scanning from config
+- [ ] implement exclusion of files and directories from scanning

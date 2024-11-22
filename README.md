@@ -3,9 +3,17 @@ FastFileCheck is a high-performance, multithreaded file integrity checker for Li
 
 Features:
 * Multithreaded processing: automatically adapts to available CPU cores for optimal performance.
-* Flexible configuration: customize thread count via a configuration file, or let the program dynamically adjust based on system resources.
+* Flexible configuration: see example.conf about all configuration options.
 * Efficient hashing: uses fast, non-cryptographic hashing (xxHash) to detect file changes.
 * Lightweight database storage: stores file hashes in a compact, memory-mapped database (LMDB) for rapid access and minimal overhead.
-* Two modes of operation:
+* Three modes of operation:
   - add: to register new files in the database.
-  - check: to verify files against stored hashes, flagging any mismatches.
+  - check: to verify files against stored information, flagging any mismatches.
+  - update: to update the database with new information for existing files.
+
+In the database itself, the following information is stored for each file:
+* Full file path
+* Hash
+* Inode number
+* Link count
+* Block count
