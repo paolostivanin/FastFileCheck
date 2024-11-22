@@ -1,4 +1,5 @@
 #include <glib.h>
+#include <glib/gstdio.h>
 #include <unistd.h>
 #include "config.h"
 
@@ -14,6 +15,38 @@ get_free_memory (void)
     }
 
     return (size_t)(pages * pagesize);
+}
+
+
+static guint
+get_usable_threads (void)
+{
+    long num_processors = sysconf (_SC_NPROCESSORS_ONLN);
+    if (num_processors <= 0) {
+        g_print("Warning: Could not determine number of processors, using 1\n");
+        return 1;
+    }
+
+    return (guint)(num_processors - 1);
+}
+
+
+static gboolean
+validate_db_path (const gchar *path)
+{
+    if (!g_file_test (path, G_FILE_TEST_EXISTS)) {
+        if (g_mkdir_with_parents (path, 0755) != 0) {
+            g_print ("Unable to create database directory: %s\n", path);
+            return FALSE;
+        }
+    }
+
+    if (g_access (path, W_OK) != 0) {
+        g_print ("Database directory is not writable: %s\n", path);
+        return FALSE;
+    }
+
+    return TRUE;
 }
 
 
@@ -33,7 +66,7 @@ load_config (const char *config_path)
 
     GError *config_error = NULL;
     gint t_val = g_key_file_get_integer (key_file, "settings", "threads_count", &config_error);
-    guint usable_threads = sysconf(_SC_NPROCESSORS_ONLN) - 1;
+    guint usable_threads = get_usable_threads ();
     if ((config_error != NULL && config_error->code == G_KEY_FILE_ERROR_KEY_NOT_FOUND) || t_val < 0 || t_val > (gint)(usable_threads + 1)) {
         g_print ("Invalid threads_count value: %d. Using the default value instead.\n", t_val);
         g_clear_error (&config_error);
@@ -65,6 +98,9 @@ load_config (const char *config_path)
     gchar *t_str = g_key_file_get_string (key_file, "database", "db_path", NULL);
     config_data->db_path = (t_str != NULL) ? g_strdup (t_str) : g_strdup (DEFAULT_DB_PATH);
     g_free (t_str);
+    if (!validate_db_path (config_data->db_path)) {
+        return NULL;
+    }
 
     gboolean t_val_bool = g_key_file_get_boolean (key_file, "logging", "log_to_file_enabled", &config_error);
     if (!t_val_bool && (config_error != NULL && (config_error->code == G_KEY_FILE_ERROR_INVALID_VALUE || config_error->code == G_KEY_FILE_ERROR_KEY_NOT_FOUND))) {
@@ -127,5 +163,8 @@ free_config (ConfigData *config)
 {
     g_free (config->db_path);
     g_free (config->log_path);
+    g_free(config->directories);
+    g_free(config->exclude_directories);
+    g_free(config->exclude_extensions);
     g_free (config);
 }

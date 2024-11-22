@@ -74,6 +74,8 @@ main (int argc, char *argv[])
     }
 
     ConfigData *config_data = load_config (config_path);
+    if (config_data == NULL) return -1;
+
     if (strcmp (argv[1], "add") == 0) {
         config_data->mode = MODE_ADD;
     } else if (strcmp (argv[1], "check") == 0) {
