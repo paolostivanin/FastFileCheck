@@ -151,6 +151,60 @@ add_file (const char *filepath,
 }
 
 
+static void
+check_db (const char *filepath,
+          const guint64 per_thread_ram,
+          DatabaseData *db_data)
+{
+    struct stat st;
+    if (stat (filepath, &st) != 0) {
+        g_print ("Could not stat file: %s\n", filepath);
+        return;
+    }
+
+    guint64 current_hash = compute_hash (filepath, per_thread_ram);
+    if (current_hash == 0) {
+        g_print ("Could not compute hash for file: %s\n", filepath);
+        return;
+    }
+
+    MDB_txn *txn;
+    MDB_val key, data;
+    int rc = mdb_txn_begin (db_data->env, NULL, MDB_RDONLY, &txn);
+    if (rc != 0) {
+        g_print ("mdb_txn_begin failed: %s\n", mdb_strerror (rc));
+        return;
+    }
+
+    key.mv_size = g_utf8_strlen (filepath, -1) + 1;
+    key.mv_data = (void*)filepath;
+
+    rc = mdb_get (txn, db_data->dbi, &key, &data);
+    if (rc != 0) {
+        g_print ("File not found in database: %s\n", filepath);
+        mdb_txn_abort (txn);
+        return;
+    }
+
+    FileEntryData *stored_data = (FileEntryData *)data.mv_data;
+
+    if (current_hash != stored_data->hash) {
+        g_print ("Hash mismatch for %s\n", filepath);
+    }
+    if (st.st_ino != stored_data->inode) {
+        g_print ("Inode changed for %s\n", filepath);
+    }
+    if (st.st_nlink != stored_data->link_count) {
+        g_print ("Link count changed for %s\n", filepath);
+    }
+    if (st.st_blocks != stored_data->block_count) {
+        g_print ("Block count changed for %s\n", filepath);
+    }
+
+    mdb_txn_abort (txn);
+}
+
+
 void
 process_file (const gchar  *file_path,
               ConsumerData *consumer_data)
@@ -158,8 +212,7 @@ process_file (const gchar  *file_path,
     if (consumer_data->config_data->mode == MODE_ADD) {
         add_file (file_path, consumer_data->config_data->max_ram_per_thread, consumer_data->db_data);
     } else if (consumer_data->config_data->mode == MODE_CHECK) {
-        // TODO: check files against db and report diffs
-        //check_file ();
+        check_db (file_path, consumer_data->config_data->max_ram_per_thread, consumer_data->db_data);
     } else if (consumer_data->config_data->mode == MODE_UPDATE) {
         // TODO: update dbs with new info (deleted files, changed hash, etc)
         //update_db ();
