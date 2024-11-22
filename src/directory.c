@@ -54,17 +54,19 @@ scan_dir (const gchar    *dir_path,
 
 
 void
-process_directory (const gchar   *dir_path,
-                   guint          max_depth,
-                   FileQueueData *file_queue_data)
+process_directories (gchar         **dirs,
+                     guint           max_depth,
+                     FileQueueData  *file_queue_data)
 {
     ProcessContext *ctx = g_new0 (ProcessContext, 1);
     ctx->visited = g_hash_table_new_full (g_str_hash, g_str_equal, g_free, NULL);
     ctx->depth = 0;
 
-    scan_dir (dir_path, max_depth, ctx, file_queue_data);
-
+    for (gsize i = 0; dirs[i] != NULL; i++) {
+        scan_dir(dirs[i], max_depth, ctx, file_queue_data);
+    }
     file_queue_data->scanning_done = TRUE;
 
     g_hash_table_destroy (ctx->visited);
+    g_free (ctx);
 }

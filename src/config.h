@@ -9,6 +9,8 @@
 #define DEFAULT_DB_SIZE_IN_MB       15
 #define DEFAULT_RAM_USAGE_PERCENT   70
 #define DEFAULT_MAX_RECURSION_DEPTH 10
+#define DEFAULT_LOG_TO_FILE         TRUE
+#define DEFAULT_EXCLUDE_HIDDEN      TRUE
 
 typedef enum mode_t {
     MODE_ADD = 1,
@@ -19,11 +21,19 @@ typedef enum mode_t {
 typedef struct config_t {
     guint threads_count;
     guint64 usable_ram;
-    guint db_size_bytes;
-    gchar *db_path;
-    gchar *log_path;
     guint64 max_ram_per_thread;
+
+    gchar *db_path;
+    guint db_size_bytes;
+
+    gboolean logging_enabled;
+    gchar *log_path;
+
     guint max_recursion_depth;
+    gboolean exclude_hidden;
+    gchar *directories;
+    gchar *exclude_directories;
+    gchar *exclude_extensions;
 
     Mode mode;
 } ConfigData;

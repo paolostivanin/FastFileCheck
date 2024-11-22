@@ -4,13 +4,24 @@
 #include "directory.h"
 #include "queue.h"
 #include "process_file.h"
+#include "version.h"
 
 
-static void
-usage (const char *prog_name)
+void
+show_help(const gchar *prog_name)
 {
-    g_print ("Usage: %s [--config /path/to/cfg] <add|check|update> <directory_path>\n", prog_name);
-    // TODO: update will remove files that are no longer on the disk and also stuff like inode, hash, etc if changed
+    g_print ("%s v%s\n", prog_name, VERSION);
+    g_print ("Project URL: https://github.com/paolostivanin/FastFileCheck\n\n");
+    g_print ("Usage:\n");
+    g_print ("  %s [OPTION] COMMAND\n\n", prog_name);
+    g_print ("Commands:\n");
+    g_print ("  add     Add files to the database\n");
+    g_print ("  check   Check files against the database\n");
+    g_print ("  update  Remove/update files in the database\n\n");
+    g_print ("Options:\n");
+    g_print ("  -h, --help     Show this help message and exit\n");
+    g_print ("  -v, --version  Show version information and exit\n");
+    g_print ("  -c, --config   Path to config file (default: /etc/ffc.conf)\n");
 }
 
 
@@ -45,15 +56,20 @@ queue_consumer (gpointer data)
 int
 main (int argc, char *argv[])
 {
+    if (argc > 1 && (g_strcmp0 (argv[1], "-h") == 0 || g_strcmp0 (argv[1], "--help") == 0)) {
+        show_help (argv[0]);
+        return 0;
+    }
+
     const char *config_path = NULL;
-    if (argc == 5 && strcmp (argv[1], "--config") == 0) {
+    if (argc == 4 && strcmp (argv[1], "--config") == 0) {
         config_path = argv[2];
         argc -= 2;
         argv += 2;
     }
 
-    if (argc != 3) {
-        usage(argv[0]);
+    if (argc != 2) {
+        show_help (argv[0]);
         return -1;
     }
 
@@ -65,7 +81,7 @@ main (int argc, char *argv[])
     } else if (strcmp (argv[1], "update") == 0) {
         config_data->mode = MODE_UPDATE;
     } else {
-        usage(argv[0]);
+        show_help (argv[0]);
         return -1;
     }
 
@@ -91,7 +107,12 @@ main (int argc, char *argv[])
 
     GThread *consumer_thread = g_thread_new ("queue-consumer", queue_consumer, consumer_data);
 
-    process_directory (argv[2], config_data->max_recursion_depth, file_queue_data);
+    // TODO: split exclude_directories and exclude_extensions from config file
+    // TODO: check if hidden should be skipped
+    // TODO: implement logic for those points
+    gchar **dirs = g_strsplit (config_data->directories, ",", -1);
+    process_directories (dirs, config_data->max_recursion_depth, file_queue_data);
+    g_strfreev (dirs);
 
     g_thread_join (consumer_thread);
     g_thread_pool_free (thread_pool, FALSE, TRUE);
