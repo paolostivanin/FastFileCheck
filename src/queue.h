@@ -17,6 +17,6 @@ typedef struct consumer_data_t {
     DatabaseData *db_data;
 } ConsumerData;
 
-FileQueueData *init_file_queue (guint64 usable_ram);
+FileQueueData *init_file_queue (guint64        usable_ram);
 
-void free_file_queue (FileQueueData *file_queue_data);
+void free_file_queue           (FileQueueData *file_queue_data);

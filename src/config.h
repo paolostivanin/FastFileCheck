@@ -30,4 +30,4 @@ typedef struct config_t {
 
 ConfigData *load_config (const char *config_path);
 
-void free_config (ConfigData *config);
+void free_config        (ConfigData *config);

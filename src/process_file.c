@@ -21,8 +21,8 @@ typedef struct file_info_t {
 
 
 static guint64
-compute_hash (const char *filepath,
-              const guint64 per_thread_ram)
+compute_hash (const char    *filepath,
+              const guint64  per_thread_ram)
 {
     GError *error = NULL;
     GFile *file = g_file_new_for_path (filepath);
@@ -105,9 +105,9 @@ compute_hash (const char *filepath,
 
 
 static gboolean
-get_file_info (const char *filepath,
-              const guint64 per_thread_ram,
-              FileInfo *info)
+get_file_info (const char    *filepath,
+               const guint64  per_thread_ram,
+               FileInfo      *info)
 {
     if (stat (filepath, &info->st) != 0) {
         g_print ("Could not stat file: %s\n", filepath);
@@ -116,7 +116,7 @@ get_file_info (const char *filepath,
 
     info->hash = compute_hash (filepath, per_thread_ram);
     if (info->hash == 0) {
-        g_print("Could not compute hash for file: %s\n", filepath);
+        g_print ("Could not compute hash for file: %s\n", filepath);
         return FALSE;
     }
 
@@ -124,7 +124,8 @@ get_file_info (const char *filepath,
 }
 
 static FileEntryData
-create_entry_data (const char *filepath, const FileInfo *info)
+create_entry_data (const char     *filepath,
+                   const FileInfo *info)
 {
     return (FileEntryData) {
         .filepath = g_strdup (filepath),
@@ -136,10 +137,10 @@ create_entry_data (const char *filepath, const FileInfo *info)
 }
 
 static gboolean
-handle_db_operation (const char *filepath,
+handle_db_operation (const char     *filepath,
                      const FileInfo *info,
-                     DatabaseData *db_data,
-                     Mode op)
+                     DatabaseData   *db_data,
+                     Mode            op)
 {
     MDB_txn *txn;
     MDB_val key, data;
@@ -147,7 +148,7 @@ handle_db_operation (const char *filepath,
 
     int rc = mdb_txn_begin (db_data->env, NULL, flags, &txn);
     if (rc != 0) {
-        g_print ("mdb_txn_begin failed: %s\n", mdb_strerror(rc));
+        g_print ("mdb_txn_begin failed: %s\n", mdb_strerror (rc));
         return FALSE;
     }
 
@@ -159,32 +160,32 @@ handle_db_operation (const char *filepath,
         data.mv_size = sizeof(FileEntryData);
         data.mv_data = &entry;
 
-        rc = mdb_put(txn, db_data->dbi, &key, &data, 0);
+        rc = mdb_put (txn, db_data->dbi, &key, &data, 0);
         if (rc != 0) {
-            g_print("mdb_put failed: %s\n", mdb_strerror(rc));
-            mdb_txn_abort(txn);
+            g_print ("mdb_put failed: %s\n", mdb_strerror (rc));
+            mdb_txn_abort (txn);
             g_free(entry.filepath);
             return FALSE;
         }
         g_free(entry.filepath);
     } else {
-        rc = mdb_get(txn, db_data->dbi, &key, &data);
+        rc = mdb_get (txn, db_data->dbi, &key, &data);
         if (rc != 0) {
             if (rc != MDB_NOTFOUND || op != MODE_UPDATE) {
-                g_print("File not found in database: %s\n", filepath);
-                mdb_txn_abort(txn);
+                g_print ("File not found in database: %s\n", filepath);
+                mdb_txn_abort (txn);
                 return FALSE;
             }
 
             // For update operation, add if not found
-            FileEntryData entry = create_entry_data(filepath, info);
+            FileEntryData entry = create_entry_data (filepath, info);
             data.mv_size = sizeof(FileEntryData);
             data.mv_data = &entry;
 
-            rc = mdb_put(txn, db_data->dbi, &key, &data, 0);
+            rc = mdb_put (txn, db_data->dbi, &key, &data, 0);
             if (rc != 0) {
-                g_print("mdb_put failed: %s\n", mdb_strerror(rc));
-                mdb_txn_abort(txn);
+                g_print ("mdb_put failed: %s\n", mdb_strerror (rc));
+                mdb_txn_abort (txn);
                 g_free(entry.filepath);
                 return FALSE;
             }
@@ -193,39 +194,39 @@ handle_db_operation (const char *filepath,
             FileEntryData *stored = (FileEntryData *)data.mv_data;
             if (op == MODE_CHECK) {
                 if (info->hash != stored->hash)
-                    g_print("Hash mismatch for %s\n", filepath);
+                    g_print ("Hash mismatch for %s\n", filepath);
                 if (info->st.st_ino != stored->inode)
-                    g_print("Inode changed for %s\n", filepath);
+                    g_print ("Inode changed for %s\n", filepath);
                 if (info->st.st_nlink != stored->link_count)
-                    g_print("Link count changed for %s\n", filepath);
+                    g_print ("Link count changed for %s\n", filepath);
                 if (info->st.st_blocks != stored->block_count)
-                    g_print("Block count changed for %s\n", filepath);
+                    g_print ("Block count changed for %s\n", filepath);
             } else if (op == MODE_UPDATE &&
                       (info->hash != stored->hash ||
                        info->st.st_ino != stored->inode ||
                        info->st.st_nlink != stored->link_count ||
                        info->st.st_blocks != stored->block_count)) {
 
-                FileEntryData entry = create_entry_data(filepath, info);
+                FileEntryData entry = create_entry_data (filepath, info);
                 data.mv_size = sizeof(FileEntryData);
                 data.mv_data = &entry;
 
-                rc = mdb_put(txn, db_data->dbi, &key, &data, 0);
+                rc = mdb_put (txn, db_data->dbi, &key, &data, 0);
                 if (rc != 0) {
-                    g_print("mdb_put failed: %s\n", mdb_strerror(rc));
-                    mdb_txn_abort(txn);
-                    g_free(entry.filepath);
+                    g_print ("mdb_put failed: %s\n", mdb_strerror (rc));
+                    mdb_txn_abort (txn);
+                    g_free (entry.filepath);
                     return FALSE;
                 }
-                g_free(entry.filepath);
+                g_free (entry.filepath);
             }
         }
     }
 
     if (op == MODE_CHECK)
-        mdb_txn_abort(txn);
+        mdb_txn_abort (txn);
     else
-        mdb_txn_commit(txn);
+        mdb_txn_commit (txn);
 
     return TRUE;
 }
