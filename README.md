@@ -20,6 +20,7 @@ Design overwiew:
 * Main thread (producer): traverses directories and feeds the queue (one thread is more than enough for most use cases)
 * Dedicated consumer thread: manages queue and distributes work to threadpool
 * Worker threads: compute hashes in parallel
+
 This separation of concerns is efficient because:
 * Directory traversal is I/O bound and works well in a single thread
 * Queue management is centralized, preventing race conditions
