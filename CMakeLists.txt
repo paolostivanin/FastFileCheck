@@ -38,7 +38,7 @@ add_executable(${PROJECT_NAME}
         src/main.c
         src/config.c
         src/database.c
-        src/directory.c
+        src/process_directories.c
         src/queue.c
         src/process_file.c
 )

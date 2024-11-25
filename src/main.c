@@ -1,7 +1,7 @@
 #include <glib.h>
 #include "config.h"
 #include "database.h"
-#include "directory.h"
+#include "process_directories.h"
 #include "queue.h"
 #include "process_file.h"
 #include "version.h"
@@ -109,11 +109,8 @@ main (int argc, char *argv[])
 
     GThread *consumer_thread = g_thread_new ("queue-consumer", queue_consumer, consumer_data);
 
-    // TODO: split exclude_directories and exclude_extensions from config file
-    // TODO: check if hidden should be skipped
-    // TODO: implement logic for those points
     gchar **dirs = g_strsplit (config_data->directories, ",", -1);
-    process_directories (dirs, config_data->max_recursion_depth, file_queue_data);
+    process_directories (dirs, config_data->max_recursion_depth, file_queue_data, config_data);
     g_strfreev (dirs);
 
     g_thread_join (consumer_thread);

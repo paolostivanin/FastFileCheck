@@ -4,4 +4,5 @@
 
 void process_directories (gchar         **dirs,
                           guint           max_depth,
-                          FileQueueData  *file_queue_data);
+                          FileQueueData  *file_queue_data,
+                          ConfigData     *config_data);

@@ -163,8 +163,8 @@ free_config (ConfigData *config)
 {
     g_free (config->db_path);
     g_free (config->log_path);
-    g_free(config->directories);
-    g_free(config->exclude_directories);
-    g_free(config->exclude_extensions);
+    g_free (config->directories);
+    g_free (config->exclude_directories);
+    g_free (config->exclude_extensions);
     g_free (config);
 }

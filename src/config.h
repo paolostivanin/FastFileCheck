@@ -30,8 +30,8 @@ typedef struct config_t {
     gchar *log_path;
 
     guint max_recursion_depth;
-    gboolean exclude_hidden;
     gchar *directories;
+    gboolean exclude_hidden;
     gchar *exclude_directories;
     gchar *exclude_extensions;
 
