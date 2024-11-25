@@ -1,3 +1,0 @@
-- [v] implement directory scanning from config
-- [v] implement exclusion of files and directories from scanning
-- [ ] implement logging to file
