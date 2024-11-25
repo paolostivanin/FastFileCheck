@@ -5,6 +5,7 @@
 #include "queue.h"
 #include "process_file.h"
 #include "version.h"
+#include "logging.h"
 
 
 void
@@ -36,18 +37,22 @@ worker_thread (gpointer data,
 
 
 static gpointer
-queue_consumer (gpointer data)
+queue_consumer(gpointer data)
 {
     ConsumerData *consumer_data = (ConsumerData *)data;
     while (TRUE) {
         gchar *file_path = g_async_queue_try_pop (consumer_data->file_queue_data->queue);
         if (file_path == NULL) {
-            if (consumer_data->file_queue_data->scanning_done) break;
+            if (consumer_data->file_queue_data->scanning_done) {
+                // Drain any remaining items
+                while ((file_path = g_async_queue_try_pop (consumer_data->file_queue_data->queue)) != NULL) {
+                    g_thread_pool_push (consumer_data->thread_pool, file_path, NULL);
+                }
+                break;
+            }
             g_usleep (1000);
-            continue;
-        } else {
-            g_thread_pool_push (consumer_data->thread_pool, file_path, NULL);
         }
+        g_thread_pool_push (consumer_data->thread_pool, file_path, NULL);
     }
     return NULL;
 }
@@ -87,6 +92,8 @@ main (int argc, char *argv[])
         return -1;
     }
 
+    g_log_set_default_handler (log_handler, NULL);
+
     DatabaseData *db_data = init_db (config_data);
     if (db_data == NULL) return -1;
 
@@ -101,7 +108,9 @@ main (int argc, char *argv[])
     GError *error = NULL;
     GThreadPool *thread_pool = g_thread_pool_new (worker_thread, consumer_data, (gint32)config_data->threads_count, FALSE, &error);
     if (error != NULL) {
-        g_printerr ("Error creating the thread pool: %s\n", error->message);
+        gchar *msg = g_strconcat ("Error creating the thread pool: ", error->message, NULL);
+        g_log (NULL, G_LOG_LEVEL_ERROR, msg);
+        g_free (msg);
         g_error_free (error);
         return -1;
     }

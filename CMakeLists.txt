@@ -41,6 +41,7 @@ add_executable(${PROJECT_NAME}
         src/process_directories.c
         src/queue.c
         src/process_file.c
+        src/logging.c
 )
 
 target_link_libraries(${PROJECT_NAME} ${XXHASH_LIBRARIES} ${LMDB_LIBRARIES} ${GLIB2_LIBRARIES} ${GIO_LIBRARIES})
