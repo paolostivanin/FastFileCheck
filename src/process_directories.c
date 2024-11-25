@@ -63,7 +63,7 @@ scan_dir(const gchar    *dir_path,
          ScanContext    *scan_ctx)
 {
     if (ctx->depth > max_depth) {
-        g_print ("Max recursion depth exceeded at: %s\n", dir_path);
+        g_log (NULL, G_LOG_LEVEL_WARNING, "Max recursion depth exceeded at: %s", dir_path);
         return;
     }
 
@@ -82,7 +82,7 @@ scan_dir(const gchar    *dir_path,
                                                              NULL);
 
     if (!enumerator) {
-        g_print ("Failed to open directory: %s\n", dir_path);
+        g_log (NULL, G_LOG_LEVEL_ERROR, "Failed to open directory: %s", dir_path);
         g_object_unref (dir);
         return;
     }

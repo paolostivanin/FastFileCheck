@@ -8,6 +8,9 @@ log_handler (const gchar    *log_domain __attribute__((unused)),
              const gchar    *message,
              gpointer        user_data)
 {
+    if (log_level == G_LOG_LEVEL_ERROR) {
+        g_printerr ("ERROR: %s\n", message);
+    }
     ConfigData *config = (ConfigData *)user_data;
     if (!config->logging_enabled) return;
 

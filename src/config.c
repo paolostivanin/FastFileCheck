@@ -60,7 +60,7 @@ load_config (const char *config_path)
 
     GKeyFile *key_file = g_key_file_new ();
     if (!g_key_file_load_from_file (key_file, config_path, G_KEY_FILE_NONE, NULL)) {
-        g_print ("Failed to load config file: %s", config_path);
+        g_log (NULL, G_LOG_LEVEL_ERROR, "Failed to load config file: %s", config_path);
         return NULL;
     }
 
@@ -68,7 +68,7 @@ load_config (const char *config_path)
     gint t_val = g_key_file_get_integer (key_file, "settings", "threads_count", &config_error);
     guint usable_threads = get_usable_threads ();
     if ((config_error != NULL && config_error->code == G_KEY_FILE_ERROR_KEY_NOT_FOUND) || t_val < 0 || t_val > (gint)(usable_threads + 1)) {
-        g_print ("Invalid threads_count value: %d. Using the default value instead.\n", t_val);
+        g_log (NULL, G_LOG_LEVEL_WARNING, "Invalid threads_count value: %d. Using the default value instead.", t_val);
         g_clear_error (&config_error);
     }
     // use 'usable_threads' when config is missing/wrong or when t_val == 0
@@ -81,7 +81,7 @@ load_config (const char *config_path)
 
     t_val = g_key_file_get_integer (key_file, "settings", "ram_usage_percent", &config_error);
     if ((config_error != NULL && config_error->code == G_KEY_FILE_ERROR_KEY_NOT_FOUND) || t_val < 10 || t_val > 90) {
-        g_print ("Invalid ram_usage_percent value: %u. Using the default value instead.\n", t_val);
+        g_log (NULL, G_LOG_LEVEL_WARNING, "Invalid ram_usage_percent value: %u. Using the default value instead.", t_val);
         t_val = DEFAULT_RAM_USAGE_PERCENT;
         g_clear_error (&config_error);
     }
@@ -90,7 +90,7 @@ load_config (const char *config_path)
 
     t_val = g_key_file_get_integer (key_file, "database", "db_size_mb", NULL);
     if (t_val < 5) {
-        g_print ("Invalid db_size_mb value: %u. Using the default value instead.\n", t_val);
+        g_log (NULL, G_LOG_LEVEL_WARNING, "Invalid db_size_mb value: %u. Using the default value instead.", t_val);
         t_val = DEFAULT_DB_SIZE_IN_MB;
     }
     config_data->db_size_bytes = t_val * 1024 * 1024;
@@ -104,7 +104,7 @@ load_config (const char *config_path)
 
     gboolean t_val_bool = g_key_file_get_boolean (key_file, "logging", "log_to_file_enabled", &config_error);
     if (!t_val_bool && (config_error != NULL && (config_error->code == G_KEY_FILE_ERROR_INVALID_VALUE || config_error->code == G_KEY_FILE_ERROR_KEY_NOT_FOUND))) {
-        g_print ("Couldn't get the value for log_to_file_enabled. Setting it to the default one.\n");
+        g_log (NULL, G_LOG_LEVEL_WARNING, "Couldn't get the value for log_to_file_enabled. Setting it to the default one.");
         t_val_bool = DEFAULT_LOG_TO_FILE;
         g_clear_error (&config_error);
     }
@@ -116,7 +116,7 @@ load_config (const char *config_path)
 
     t_val = g_key_file_get_integer (key_file, "scanning", "max_recursion_depth", &config_error);
     if ((config_error != NULL && config_error->code == G_KEY_FILE_ERROR_KEY_NOT_FOUND) || t_val < 0 || t_val > 64) {
-        g_print ("Invalid max_recursion_depth value: %u. Using the default value instead.\n", t_val);
+        g_log (NULL, G_LOG_LEVEL_WARNING, "Invalid max_recursion_depth value: %u. Using the default value instead.", t_val);
         t_val = DEFAULT_MAX_RECURSION_DEPTH;
         g_clear_error (&config_error);
     }
@@ -124,7 +124,7 @@ load_config (const char *config_path)
 
     t_val_bool = g_key_file_get_boolean (key_file, "scanning", "exclude_hidden", &config_error);
     if (!t_val_bool && (config_error != NULL && (config_error->code == G_KEY_FILE_ERROR_INVALID_VALUE || config_error->code == G_KEY_FILE_ERROR_KEY_NOT_FOUND))) {
-        g_print ("Couldn't get the value for exclude_hidden. Setting it to the default one.\n");
+        g_log (NULL, G_LOG_LEVEL_WARNING,"Couldn't get the value for exclude_hidden. Setting it to the default one.");
         t_val_bool = DEFAULT_EXCLUDE_HIDDEN;
         g_clear_error (&config_error);
     }
@@ -132,7 +132,7 @@ load_config (const char *config_path)
 
     t_str = g_key_file_get_string (key_file, "scanning", "directories", NULL);
     if (!t_str || g_utf8_strlen (t_str, -1) < 1) {
-        g_print ("Couldn't get the value for which directories to scan, exiting.\n");
+        g_log (NULL, G_LOG_LEVEL_ERROR, "Couldn't get the value for which directories to scan, exiting.");
         return NULL;
     }
     config_data->directories = g_strdup (t_str);
@@ -140,14 +140,14 @@ load_config (const char *config_path)
 
     t_str = g_key_file_get_string (key_file, "scanning", "exclude_directories", NULL);
     if (!t_str || g_utf8_strlen (t_str, -1) < 1) {
-        g_print ("No directories configured to be excluded.\n");
+        g_log (NULL, G_LOG_LEVEL_WARNING, "No directories configured to be excluded.");
     }
     if (g_utf8_strlen (t_str, -1) > 0) config_data->exclude_directories = g_strdup (t_str);
     g_free (t_str);
 
     t_str = g_key_file_get_string (key_file, "scanning", "exclude_extensions", NULL);
     if (!t_str || g_utf8_strlen (t_str, -1) < 1) {
-        g_print ("No file extensions configured to be excluded.\n");
+        g_log (NULL, G_LOG_LEVEL_WARNING, "No file extensions configured to be excluded.");
     }
     if (g_utf8_strlen (t_str, -1) > 0) config_data->exclude_extensions = g_strdup (t_str);
     g_free (t_str);

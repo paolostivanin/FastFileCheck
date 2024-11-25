@@ -28,7 +28,7 @@ compute_hash (const char    *filepath,
     GFile *file = g_file_new_for_path (filepath);
     GFileInfo *file_info = g_file_query_info (file, G_FILE_ATTRIBUTE_STANDARD_SIZE, G_FILE_QUERY_INFO_NONE, NULL, &error);
     if (!file_info) {
-        g_print ("Failed to query file info: %s\n", error->message);
+        g_log (NULL, G_LOG_LEVEL_ERROR, "Failed to query file info: %s\n", error->message);
         g_clear_error (&error);
         g_object_unref (file);
         return 0;
@@ -48,14 +48,14 @@ compute_hash (const char    *filepath,
             g_object_unref (file);
             return hash;
         }
-        g_print ("Failed to map file %s (%s). Falling back to chunked reading.\n", filepath, error->message);
+        g_log (NULL, G_LOG_LEVEL_INFO, "Failed to map file %s (%s). Falling back to chunked reading.\n", filepath, error->message);
         g_clear_error (&error);
     }
 
     // Fall back to chunked reading
     GFileInputStream *input_stream = g_file_read (file, NULL, &error);
     if (!input_stream) {
-        g_print ("Failed to open file (%s) for reading: %s\n", filepath, error->message);
+        g_log (NULL, G_LOG_LEVEL_ERROR, "Failed to open file (%s) for reading: %s\n", filepath, error->message);
         g_clear_error (&error);
         g_object_unref (file);
         return 0;
@@ -67,7 +67,7 @@ compute_hash (const char    *filepath,
 
     guchar *buffer = g_try_malloc0 (buffer_size);
     if (!buffer) {
-        g_print ("Failed to allocate buffer for file %s\n", filepath);
+        g_log (NULL, G_LOG_LEVEL_ERROR, "Failed to allocate buffer for file %s\n", filepath);
         g_object_unref (input_stream);
         g_object_unref (file);
         return 0;
@@ -75,7 +75,7 @@ compute_hash (const char    *filepath,
 
     XXH3_state_t *state = XXH3_createState ();
     if (!state) {
-        g_print ("Failed to create XXH3 state for file %s\n", filepath);
+        g_log (NULL, G_LOG_LEVEL_ERROR, "Failed to create XXH3 state for file %s\n", filepath);
         g_free (buffer);
         g_object_unref (input_stream);
         g_object_unref (file);
@@ -110,13 +110,13 @@ get_file_info (const char    *filepath,
                FileInfo      *info)
 {
     if (stat (filepath, &info->st) != 0) {
-        g_print ("Could not stat file: %s\n", filepath);
+        g_log (NULL, G_LOG_LEVEL_ERROR, "Could not stat file: %s\n", filepath);
         return FALSE;
     }
 
     info->hash = compute_hash (filepath, per_thread_ram);
     if (info->hash == 0) {
-        g_print ("Could not compute hash for file: %s\n", filepath);
+        g_log (NULL, G_LOG_LEVEL_ERROR, "Could not compute hash for file: %s\n", filepath);
         return FALSE;
     }
 
@@ -148,7 +148,7 @@ handle_db_operation (const char     *filepath,
 
     int rc = mdb_txn_begin (db_data->env, NULL, flags, &txn);
     if (rc != 0) {
-        g_print ("mdb_txn_begin failed: %s\n", mdb_strerror (rc));
+        g_log (NULL, G_LOG_LEVEL_ERROR, "mdb_txn_begin failed: %s\n", mdb_strerror (rc));
         return FALSE;
     }
 
@@ -162,9 +162,9 @@ handle_db_operation (const char     *filepath,
 
         rc = mdb_put (txn, db_data->dbi, &key, &data, 0);
         if (rc != 0) {
-            g_print ("mdb_put failed: %s\n", mdb_strerror (rc));
+            g_log (NULL, G_LOG_LEVEL_ERROR, "mdb_put failed: %s\n", mdb_strerror (rc));
             mdb_txn_abort (txn);
-            g_free(entry.filepath);
+            g_free (entry.filepath);
             return FALSE;
         }
         g_free(entry.filepath);
@@ -172,7 +172,7 @@ handle_db_operation (const char     *filepath,
         rc = mdb_get (txn, db_data->dbi, &key, &data);
         if (rc != 0) {
             if (rc != MDB_NOTFOUND || op != MODE_UPDATE) {
-                g_print ("File not found in database: %s\n", filepath);
+                g_log (NULL, G_LOG_LEVEL_INFO, "File not found in database: %s\n", filepath);
                 mdb_txn_abort (txn);
                 return FALSE;
             }
@@ -184,13 +184,14 @@ handle_db_operation (const char     *filepath,
 
             rc = mdb_put (txn, db_data->dbi, &key, &data, 0);
             if (rc != 0) {
-                g_print ("mdb_put failed: %s\n", mdb_strerror (rc));
+                g_log (NULL, G_LOG_LEVEL_ERROR, "mdb_put failed: %s\n", mdb_strerror (rc));
                 mdb_txn_abort (txn);
-                g_free(entry.filepath);
+                g_free (entry.filepath);
                 return FALSE;
             }
             g_free(entry.filepath);
         } else {
+            // TODO: how to deal with check: list, file, etc
             FileEntryData *stored = (FileEntryData *)data.mv_data;
             if (op == MODE_CHECK) {
                 if (info->hash != stored->hash)
@@ -213,7 +214,7 @@ handle_db_operation (const char     *filepath,
 
                 rc = mdb_put (txn, db_data->dbi, &key, &data, 0);
                 if (rc != 0) {
-                    g_print ("mdb_put failed: %s\n", mdb_strerror (rc));
+                    g_log (NULL, G_LOG_LEVEL_ERROR, "mdb_put failed: %s\n", mdb_strerror (rc));
                     mdb_txn_abort (txn);
                     g_free (entry.filepath);
                     return FALSE;

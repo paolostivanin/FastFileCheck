@@ -108,9 +108,7 @@ main (int argc, char *argv[])
     GError *error = NULL;
     GThreadPool *thread_pool = g_thread_pool_new (worker_thread, consumer_data, (gint32)config_data->threads_count, FALSE, &error);
     if (error != NULL) {
-        gchar *msg = g_strconcat ("Error creating the thread pool: ", error->message, NULL);
-        g_log (NULL, G_LOG_LEVEL_ERROR, msg);
-        g_free (msg);
+        g_log (NULL, G_LOG_LEVEL_ERROR, "Error creating the thread pool: ", error->message);
         g_error_free (error);
         return -1;
     }
