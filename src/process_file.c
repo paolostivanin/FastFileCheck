@@ -5,6 +5,8 @@
 #include "queue.h"
 
 #define MMAP_THRESHOLD_RATIO 0.75
+#define MIN_BUFFER_SIZE (10 * 1024 * 1024)  // 10MB
+#define MAX_BUFFER_SIZE (128 * 1024 * 1024) // 128MB
 
 typedef struct file_entry_t {
     gchar *filepath;
@@ -18,6 +20,13 @@ typedef struct file_info_t {
     struct stat st;
     guint64 hash;
 } FileInfo;
+
+
+static gboolean
+validate_filepath (const char *filepath)
+{
+    return filepath && *filepath && g_file_test(filepath, G_FILE_TEST_EXISTS);
+}
 
 
 static guint64
@@ -61,11 +70,9 @@ compute_hash (const char    *filepath,
         return 0;
     }
 
-    const gsize buffer_size = CLAMP(per_thread_ram / 4,
-                                     10 * 1024 * 1024,
-                                    128 * 1024 * 1024);
+    const gsize buffer_size = CLAMP(per_thread_ram / 4, MIN_BUFFER_SIZE, MAX_BUFFER_SIZE);
 
-    guchar *buffer = g_try_malloc0 (buffer_size);
+    guchar *buffer = g_try_malloc0_n (buffer_size, sizeof(guchar));
     if (!buffer) {
         g_log (NULL, G_LOG_LEVEL_ERROR, "Failed to allocate buffer for file %s\n", filepath);
         g_object_unref (input_stream);
@@ -172,7 +179,7 @@ handle_db_operation (const char     *filepath,
         rc = mdb_get (txn, db_data->dbi, &key, &data);
         if (rc != 0) {
             if (rc != MDB_NOTFOUND || op != MODE_UPDATE) {
-                g_log (NULL, G_LOG_LEVEL_INFO, "File not found in database: %s\n", filepath);
+                g_log (NULL, G_LOG_LEVEL_ERROR, "Database operation failed: %s\n", mdb_strerror (rc));
                 mdb_txn_abort (txn);
                 return FALSE;
             }
@@ -237,6 +244,11 @@ void
 process_file (const gchar  *file_path,
               ConsumerData *consumer_data)
 {
+    if (!validate_filepath (file_path)) {
+        g_log (NULL, G_LOG_LEVEL_ERROR, "Invalid file path: %s\n", file_path);
+        return;
+    }
+
     FileInfo info;
     if (get_file_info (file_path, consumer_data->config_data->max_ram_per_thread, &info)) {
         handle_db_operation (file_path, &info, consumer_data->db_data, consumer_data->config_data->mode);

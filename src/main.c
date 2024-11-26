@@ -98,9 +98,20 @@ main (int argc, char *argv[])
     if (db_data == NULL) return -1;
 
     FileQueueData *file_queue_data = init_file_queue (config_data->usable_ram);
+    if (!file_queue_data) {
+        free_db (db_data);
+        free_config (config_data);
+        return -1;
+    }
     file_queue_data->scanning_done = FALSE;
 
-    ConsumerData *consumer_data = g_new0 (ConsumerData, 1);
+    ConsumerData *consumer_data = g_try_new0 (ConsumerData, 1);
+    if (!consumer_data) {
+        free_db (db_data);
+        free_config (config_data);
+        g_log (NULL, G_LOG_LEVEL_ERROR, "Failed to allocate memory for consumer_data");
+        return -1;
+    }
     consumer_data->file_queue_data = file_queue_data;
     consumer_data->config_data = config_data;
     consumer_data->db_data = db_data;
@@ -122,6 +133,8 @@ main (int argc, char *argv[])
 
     g_thread_join (consumer_thread);
     g_thread_pool_free (thread_pool, FALSE, TRUE);
+
+    cleanup_logger ();
 
     free_file_queue (file_queue_data);
     free_config (config_data);

@@ -115,16 +115,25 @@ scan_dir(const gchar    *dir_path,
 }
 
 void
-process_directories(gchar         **dirs,
-                    guint           max_depth,
-                    FileQueueData  *file_queue_data,
-                    ConfigData     *config_data)
+process_directories (gchar         **dirs,
+                     guint           max_depth,
+                     FileQueueData  *file_queue_data,
+                     ConfigData     *config_data)
 {
-    ProcessContext *ctx = g_new0 (ProcessContext, 1);
+    ProcessContext *ctx = g_try_new0 (ProcessContext, 1);
+    if (!ctx) {
+        g_log (NULL, G_LOG_LEVEL_ERROR, "Failed to allocate memory for ProcessContext");
+        return;
+    }
     ctx->visited = g_hash_table_new_full (g_str_hash, g_str_equal, g_free, NULL);
     ctx->depth = 0;
 
-    ScanContext *scan_ctx = g_new0 (ScanContext, 1);
+    ScanContext *scan_ctx = g_try_new0 (ScanContext, 1);
+    if (!scan_ctx) {
+        g_log (NULL, G_LOG_LEVEL_ERROR, "Failed to allocate memory for ScanContext");
+        g_free (ctx);
+        return;
+    }
     scan_ctx->exclude_hidden = config_data->exclude_hidden;
     scan_ctx->queue_buffer = g_ptr_array_new ();
 

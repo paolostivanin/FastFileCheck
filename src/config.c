@@ -32,17 +32,17 @@ get_usable_threads (void)
 
 
 static gboolean
-validate_db_path (const gchar *path)
+validate_dir_path (const gchar *path)
 {
-    if (!g_file_test (path, G_FILE_TEST_EXISTS)) {
+    if (!g_file_test (path, G_FILE_TEST_IS_DIR)) {
         if (g_mkdir_with_parents (path, 0755) != 0) {
-            g_print ("Unable to create database directory: %s\n", path);
+            g_log (NULL, G_LOG_LEVEL_ERROR, "Unable to create the directory: %s\n", path);
             return FALSE;
         }
     }
 
     if (g_access (path, W_OK) != 0) {
-        g_print ("Database directory is not writable: %s\n", path);
+        g_log (NULL, G_LOG_LEVEL_ERROR, "Directory is not writable: %s\n", path);
         return FALSE;
     }
 
@@ -53,7 +53,11 @@ validate_db_path (const gchar *path)
 ConfigData *
 load_config (const char *config_path)
 {
-    ConfigData *config_data = g_new0 (ConfigData, 1);
+    ConfigData *config_data = g_try_new0 (ConfigData, 1);
+    if (!config_data) {
+        g_log (NULL, G_LOG_LEVEL_ERROR, "Failed to allocate memory for config_data");
+        return NULL;
+    }
 
     // If no config was specified, we use the default one
     config_path = (config_path == NULL) ? DEFAULT_CONFIG_PATH : config_path;
@@ -98,7 +102,8 @@ load_config (const char *config_path)
     gchar *t_str = g_key_file_get_string (key_file, "database", "db_path", NULL);
     config_data->db_path = (t_str != NULL) ? g_strdup (t_str) : g_strdup (DEFAULT_DB_PATH);
     g_free (t_str);
-    if (!validate_db_path (config_data->db_path)) {
+    if (!validate_dir_path (config_data->db_path)) {
+        // If the database directory cannot be created or is not writable, we must fail and exit
         return NULL;
     }
 
@@ -108,11 +113,17 @@ load_config (const char *config_path)
         t_val_bool = DEFAULT_LOG_TO_FILE;
         g_clear_error (&config_error);
     }
-    config_data->logging_enabled = t_val_bool;
+    config_data->logging_enabled = t_cval_bool;
 
-    t_str = g_key_file_get_string (key_file, "logging", "log_path", NULL);
-    config_data->log_path = (t_str != NULL) ? g_strdup (t_str) : g_strdup (DEFAULT_LOG_PATH);
-    g_free (t_str);
+    if (config_data->logging_enabled) {
+        t_str = g_key_file_get_string (key_file, "logging", "log_path", NULL);
+        config_data->log_path = (t_str != NULL) ? g_strdup (t_str) : g_strdup (DEFAULT_LOG_PATH);
+        g_free (t_str);
+        if (!validate_dir_path (config_data->log_path)) {
+            // If the log directory cannot be created or is not writable, disable logging but do not fail and exit.
+            config_data->logging_enabled = FALSE;
+        }
+    }
 
     t_val = g_key_file_get_integer (key_file, "scanning", "max_recursion_depth", &config_error);
     if ((config_error != NULL && config_error->code == G_KEY_FILE_ERROR_KEY_NOT_FOUND) || t_val < 0 || t_val > 64) {
@@ -140,14 +151,14 @@ load_config (const char *config_path)
 
     t_str = g_key_file_get_string (key_file, "scanning", "exclude_directories", NULL);
     if (!t_str || g_utf8_strlen (t_str, -1) < 1) {
-        g_log (NULL, G_LOG_LEVEL_WARNING, "No directories configured to be excluded.");
+        g_log (NULL, G_LOG_LEVEL_INFO, "No directories configured to be excluded.");
     }
     if (g_utf8_strlen (t_str, -1) > 0) config_data->exclude_directories = g_strdup (t_str);
     g_free (t_str);
 
     t_str = g_key_file_get_string (key_file, "scanning", "exclude_extensions", NULL);
     if (!t_str || g_utf8_strlen (t_str, -1) < 1) {
-        g_log (NULL, G_LOG_LEVEL_WARNING, "No file extensions configured to be excluded.");
+        g_log (NULL, G_LOG_LEVEL_INFO, "No file extensions configured to be excluded.");
     }
     if (g_utf8_strlen (t_str, -1) > 0) config_data->exclude_extensions = g_strdup (t_str);
     g_free (t_str);
