@@ -116,12 +116,20 @@ load_config (const char *config_path)
     config_data->logging_enabled = t_val_bool;
 
     if (config_data->logging_enabled) {
-        t_str = g_key_file_get_string (key_file, "logging", "log_path", NULL);
-        config_data->log_path = (t_str != NULL) ? g_strdup (t_str) : g_strdup (DEFAULT_LOG_PATH);
+        t_str = g_key_file_get_string(key_file, "logging", "log_path", NULL);
+        config_data->log_path = (t_str != NULL)
+                                    ? g_strdup (t_str)
+                                    : g_strdup (DEFAULT_LOG_PATH);
         g_free (t_str);
+
         if (!validate_dir_path (config_data->log_path)) {
-            // If the log directory cannot be created or is not writable, disable logging but do not fail and exit.
+            g_free (config_data->log_path);
+            config_data->log_path = NULL;
             config_data->logging_enabled = FALSE;
+        } else {
+            char *dir_path = config_data->log_path;
+            config_data->log_path = g_build_filename (dir_path, "/ffc.log", NULL);
+            g_free (dir_path);
         }
     }
 

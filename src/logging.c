@@ -37,11 +37,13 @@ log_handler (const gchar    *log_domain __attribute__((unused)),
 {
     // Always print ERROR and WARNING messages to stderr
     if (log_level & (G_LOG_LEVEL_ERROR | G_LOG_LEVEL_WARNING)) {
-        g_printerr ("[%s] %s\n", log_level == G_LOG_LEVEL_ERROR ? "ERROR" : "WARNING", message);
+        g_printerr ("[%s] %s\n", log_level & G_LOG_LEVEL_ERROR ? "ERROR" : "WARNING", message);
     }
 
+    if (!user_data) return;
+
     ConfigData *config = (ConfigData *)user_data;
-    if (!config->logging_enabled) return;
+    if (!config->logging_enabled || !config->log_path) return;
 
     g_mutex_lock (&log_mutex);
 
@@ -55,9 +57,11 @@ log_handler (const gchar    *log_domain __attribute__((unused)),
     gchar *timestamp = g_date_time_format (now, "%Y-%m-%d %H:%M:%S");
 
     const gchar *level_str;
-    switch (log_level) {
+    switch (log_level & G_LOG_LEVEL_MASK) {
         case G_LOG_LEVEL_ERROR:    level_str = "ERROR"; break;
+        case G_LOG_LEVEL_CRITICAL: level_str = "CRITICAL"; break;
         case G_LOG_LEVEL_WARNING:  level_str = "WARNING"; break;
+        case G_LOG_LEVEL_MESSAGE:  level_str = "MESSAGE"; break;
         case G_LOG_LEVEL_INFO:     level_str = "INFO"; break;
         case G_LOG_LEVEL_DEBUG:    level_str = "DEBUG"; break;
         default:                   level_str = "UNKNOWN";

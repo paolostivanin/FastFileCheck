@@ -27,7 +27,7 @@ flush_queue_buffer (GPtrArray   *buffer,
         while (g_async_queue_length (queue) >= max_size) {
             g_usleep (5000);
         }
-        g_async_queue_push (queue, buffer->pdata[i]);
+        if (buffer->pdata[i] != NULL) g_async_queue_push (queue, buffer->pdata[i]);
     }
     g_ptr_array_set_size (buffer, 0);
 }
@@ -70,7 +70,6 @@ scan_dir(const gchar    *dir_path,
     if (g_hash_table_contains (ctx->visited, dir_path)) {
         return;
     }
-
     g_hash_table_add (ctx->visited, g_strdup (dir_path));
 
     GFile *dir = g_file_new_for_path (dir_path);
@@ -80,7 +79,6 @@ scan_dir(const gchar    *dir_path,
                                                              G_FILE_QUERY_INFO_NONE,
                                                              NULL,
                                                              NULL);
-
     if (!enumerator) {
         g_log (NULL, G_LOG_LEVEL_ERROR, "Failed to open directory: %s", dir_path);
         g_object_unref (dir);
@@ -145,7 +143,6 @@ process_directories (gchar         **dirs,
         }
         g_strfreev (excluded);
     }
-
     if (config_data->exclude_extensions) {
         scan_ctx->excluded_exts = g_hash_table_new_full (g_str_hash, g_str_equal, g_free, NULL);
         gchar **excluded = g_strsplit (config_data->exclude_extensions, ";", -1);

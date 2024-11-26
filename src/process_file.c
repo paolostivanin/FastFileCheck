@@ -153,7 +153,7 @@ handle_db_operation (const char     *filepath,
 {
     MDB_txn *txn;
     MDB_val key, data;
-    int flags = (op == MODE_ADD) ? MDB_RDONLY : 0;
+    int flags = (op == MODE_CHECK) ? MDB_RDONLY : 0;
 
     int rc = mdb_txn_begin (db_data->env, NULL, flags, &txn);
     if (rc != 0) {
@@ -163,7 +163,6 @@ handle_db_operation (const char     *filepath,
 
     key.mv_size = g_utf8_strlen (filepath, -1) + 1;
     key.mv_data = (void*)filepath;
-
     if (op == MODE_ADD) {
         FileEntryData entry = create_entry_data (filepath, info);
         data.mv_size = sizeof(FileEntryData);

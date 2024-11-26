@@ -4,6 +4,8 @@
 #include "config.h"
 #include "database.h"
 
+#include <unistd.h>
+
 
 void
 free_db (DatabaseData *db_data)

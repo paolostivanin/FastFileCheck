@@ -52,7 +52,7 @@ queue_consumer(gpointer data)
             }
             g_usleep (1000);
         }
-        g_thread_pool_push (consumer_data->thread_pool, file_path, NULL);
+        if (file_path != NULL) g_thread_pool_push (consumer_data->thread_pool, file_path, NULL);
     }
     return NULL;
 }
@@ -92,7 +92,8 @@ main (int argc, char *argv[])
         return -1;
     }
 
-    g_log_set_default_handler (log_handler, NULL);
+    g_log_set_handler (NULL, G_LOG_LEVEL_MASK | G_LOG_FLAG_FATAL | G_LOG_FLAG_RECURSION, log_handler, config_data);
+    g_log (NULL, G_LOG_LEVEL_INFO, "Starting %s mode", config_data->mode == MODE_ADD ? "add" : config_data->mode == MODE_CHECK ? "check" : "update");
 
     DatabaseData *db_data = init_db (config_data);
     if (db_data == NULL) return -1;
