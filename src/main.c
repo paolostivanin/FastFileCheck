@@ -115,6 +115,12 @@ main (int argc, char *argv[])
     consumer_data->file_queue_data = file_queue_data;
     consumer_data->config_data = config_data;
     consumer_data->db_data = db_data;
+    consumer_data->summary_data = summary_new ();
+    if (consumer_data->summary_data == NULL) {
+        free_db (db_data);
+        free_config (config_data);
+        return -1;
+    }
 
     GError *error = NULL;
     GThreadPool *thread_pool = g_thread_pool_new (worker_thread, consumer_data, (gint32)config_data->threads_count, FALSE, &error);
@@ -133,6 +139,9 @@ main (int argc, char *argv[])
 
     g_thread_join (consumer_thread);
     g_thread_pool_free (thread_pool, FALSE, TRUE);
+
+    print_summary (consumer_data->summary_data);
+    free_summary (consumer_data->summary_data);
 
     cleanup_logger ();
 

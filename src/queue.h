@@ -3,6 +3,7 @@
 #include <glib.h>
 #include "config.h"
 #include "database.h"
+#include "summary.h"
 
 typedef struct file_queue_t {
     GAsyncQueue *queue;
@@ -15,6 +16,7 @@ typedef struct consumer_data_t {
     FileQueueData *file_queue_data;
     ConfigData *config_data;
     DatabaseData *db_data;
+    SummaryData *summary_data;
 } ConsumerData;
 
 FileQueueData *init_file_queue (guint64        usable_ram);

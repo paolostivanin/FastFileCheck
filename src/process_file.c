@@ -3,6 +3,7 @@
 #include <sys/stat.h>
 #include <xxhash.h>
 #include "queue.h"
+#include "summary.h"
 
 #define MMAP_THRESHOLD_RATIO 0.75
 #define MIN_BUFFER_SIZE (10 * 1024 * 1024)  // 10MB
@@ -147,6 +148,7 @@ static gboolean
 handle_db_operation (const char     *filepath,
                      const FileInfo *info,
                      DatabaseData   *db_data,
+                     SummaryData    *summary_data,
                      Mode            op)
 {
     MDB_txn *txn;
@@ -198,17 +200,16 @@ handle_db_operation (const char     *filepath,
             }
             g_free(entry.filepath);
         } else {
-            // TODO: how to deal with check: list, file, etc
             FileEntryData *stored = (FileEntryData *)data.mv_data;
             if (op == MODE_CHECK) {
                 if (info->hash != stored->hash)
-                    g_print ("Hash mismatch for %s\n", filepath);
+                    record_change (summary_data, filepath, CHANGE_HASH);
                 if (info->st.st_ino != stored->inode)
-                    g_print ("Inode changed for %s\n", filepath);
+                    record_change (summary_data, filepath, CHANGE_INODE);
                 if (info->st.st_nlink != stored->link_count)
-                    g_print ("Link count changed for %s\n", filepath);
+                    record_change (summary_data, filepath, CHANGE_LINKS);
                 if (info->st.st_blocks != stored->block_count)
-                    g_print ("Block count changed for %s\n", filepath);
+                    record_change (summary_data, filepath, CHANGE_BLOCKS);
             } else if (op == MODE_UPDATE &&
                       (info->hash != stored->hash ||
                        info->st.st_ino != stored->inode ||
@@ -251,6 +252,6 @@ process_file (const gchar  *file_path,
 
     FileInfo info;
     if (get_file_info (file_path, consumer_data->config_data->max_ram_per_thread, &info)) {
-        handle_db_operation (file_path, &info, consumer_data->db_data, consumer_data->config_data->mode);
+        handle_db_operation (file_path, &info, consumer_data->db_data, consumer_data->summary_data, consumer_data->config_data->mode);
     }
 }

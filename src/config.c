@@ -113,7 +113,7 @@ load_config (const char *config_path)
         t_val_bool = DEFAULT_LOG_TO_FILE;
         g_clear_error (&config_error);
     }
-    config_data->logging_enabled = t_cval_bool;
+    config_data->logging_enabled = t_val_bool;
 
     if (config_data->logging_enabled) {
         t_str = g_key_file_get_string (key_file, "logging", "log_path", NULL);
