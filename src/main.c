@@ -141,7 +141,7 @@ main (int argc, char *argv[])
     g_thread_join (consumer_thread);
     g_thread_pool_free (thread_pool, FALSE, TRUE);
 
-    print_summary (consumer_data->summary_data);
+    print_summary (consumer_data->summary_data, config_data->mode);
     free_summary (consumer_data->summary_data);
 
     cleanup_logger ();

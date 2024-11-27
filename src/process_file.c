@@ -163,6 +163,7 @@ handle_db_operation (const char     *filepath,
 
     key.mv_size = g_utf8_strlen (filepath, -1) + 1;
     key.mv_data = (void*)filepath;
+    // TODO: how to add verbosity? Currently nothing is shown (log file? print? what?)
     if (op == MODE_ADD) {
         FileEntryData entry = create_entry_data (filepath, info);
         data.mv_size = sizeof(FileEntryData);
@@ -176,39 +177,59 @@ handle_db_operation (const char     *filepath,
             return FALSE;
         }
         g_free(entry.filepath);
+        summary_data->total_files_processed++;
     } else {
         rc = mdb_get (txn, db_data->dbi, &key, &data);
         if (rc != 0) {
-            if (rc != MDB_NOTFOUND || op != MODE_UPDATE) {
+            if (rc != MDB_NOTFOUND) {
+                // The only error we expect is MDB_NOTFOUND, which means the file is not in the database (e.g. created after add operation)
                 g_log (NULL, G_LOG_LEVEL_ERROR, "Database operation failed: %s\n", mdb_strerror (rc));
                 mdb_txn_abort (txn);
                 return FALSE;
             }
+            // File not found, so in UPDATE mode we add it to the dabase, while in CHECK mode we record it as missing
+            if (op == MODE_UPDATE) {
+                // For update operation, add if not found
+                FileEntryData entry = create_entry_data (filepath, info);
+                data.mv_size = sizeof(FileEntryData);
+                data.mv_data = &entry;
 
-            // For update operation, add if not found
-            FileEntryData entry = create_entry_data (filepath, info);
-            data.mv_size = sizeof(FileEntryData);
-            data.mv_data = &entry;
-
-            rc = mdb_put (txn, db_data->dbi, &key, &data, 0);
-            if (rc != 0) {
-                g_log (NULL, G_LOG_LEVEL_ERROR, "mdb_put failed: %s\n", mdb_strerror (rc));
-                mdb_txn_abort (txn);
+                rc = mdb_put (txn, db_data->dbi, &key, &data, 0);
+                if (rc != 0) {
+                    g_log (NULL, G_LOG_LEVEL_ERROR, "mdb_put failed: %s\n", mdb_strerror (rc));
+                    mdb_txn_abort (txn);
+                    g_free (entry.filepath);
+                    return FALSE;
+                }
                 g_free (entry.filepath);
-                return FALSE;
             }
-            g_free(entry.filepath);
+            if (op == MODE_CHECK) {
+                record_change (summary_data, filepath, CHANGE_MISSING);
+            }
+            summary_data->total_files_processed++;
         } else {
             FileEntryData *stored = (FileEntryData *)data.mv_data;
             if (op == MODE_CHECK) {
-                if (info->hash != stored->hash)
+                gboolean change_recorded = FALSE;
+                if (info->hash != stored->hash) {
                     record_change (summary_data, filepath, CHANGE_HASH);
-                if (info->st.st_ino != stored->inode)
+                    change_recorded = TRUE;
+                }
+                if (info->st.st_ino != stored->inode) {
                     record_change (summary_data, filepath, CHANGE_INODE);
-                if (info->st.st_nlink != stored->link_count)
+                    change_recorded = TRUE;
+                }
+                if (info->st.st_nlink != stored->link_count) {
                     record_change (summary_data, filepath, CHANGE_LINKS);
-                if (info->st.st_blocks != stored->block_count)
+                    change_recorded = TRUE;
+                }
+                if (info->st.st_blocks != stored->block_count) {
                     record_change (summary_data, filepath, CHANGE_BLOCKS);
+                    change_recorded = TRUE;
+                }
+                if (!change_recorded) {
+                    summary_data->total_files_processed++;
+                }
             } else if (op == MODE_UPDATE &&
                       (info->hash != stored->hash ||
                        info->st.st_ino != stored->inode ||
@@ -227,6 +248,7 @@ handle_db_operation (const char     *filepath,
                     return FALSE;
                 }
                 g_free (entry.filepath);
+                summary_data->total_files_processed++;
             }
         }
     }
