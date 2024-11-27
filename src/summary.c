@@ -8,12 +8,13 @@ static const gchar *
 change_type_to_string (ChangeType type)
 {
     switch (type) {
-        case CHANGE_HASH:   return "Hash mismatch";
-        case CHANGE_INODE:  return "Inode changed";
-        case CHANGE_LINKS:  return "Link count changed";
-        case CHANGE_BLOCKS: return "Block count changed";
-        case CHANGE_MISSING: return "File missing from the database"; break;
-        default:            return "Unknown change";
+        case CHANGE_HASH:           return "Hash mismatch";
+        case CHANGE_INODE:          return "Inode changed";
+        case CHANGE_LINKS:          return "Link count changed";
+        case CHANGE_BLOCKS:         return "Block count changed";
+        case CHANGE_MISSING_IN_DB:  return "File is missing in the database";
+        case CHANGE_MISSING_IN_FS:  return "File is missing from the file system";
+        default:                    return "Unknown change";
     }
 }
 
@@ -49,7 +50,8 @@ record_change (SummaryData *summary_data,
         case CHANGE_INODE: summary_data->inode_changes++; break;
         case CHANGE_LINKS: summary_data->link_changes++; break;
         case CHANGE_BLOCKS: summary_data->block_changes++; break;
-        case CHANGE_MISSING: summary_data->missing_files++; break;
+        case CHANGE_MISSING_IN_DB: summary_data->missing_files_in_db++; break;
+        case CHANGE_MISSING_IN_FS: summary_data->missing_files_in_fs++; break;
     }
 }
 
@@ -68,7 +70,8 @@ print_summary (SummaryData *summary_data, Mode mode)
             g_print ("- Inode changes: %u\n", summary_data->inode_changes);
             g_print ("- Link count changes: %u\n", summary_data->link_changes);
             g_print ("- Block count changes: %u\n", summary_data->block_changes);
-            g_print ("- Missing files in the database: %u\n", summary_data->missing_files);
+            g_print ("- Missing files in the database (e.g. renamed, created): %u\n", summary_data->missing_files_in_db);
+            g_print ("- Missing files from the file system (e.g. deleted, moved): %u\n", summary_data->missing_files_in_fs);
             g_print ("\nAffected files:\n");
             GHashTableIter iter;
             gpointer key, value;
@@ -82,6 +85,7 @@ print_summary (SummaryData *summary_data, Mode mode)
                     g_print("  - %s\n", change_type_to_string (change));
                 }
             }
+            g_print ("\n");
         } else {
             g_print ("No changes detected.\n");
         }

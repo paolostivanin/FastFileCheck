@@ -11,7 +11,8 @@ typedef struct summary_data_t {
     guint inode_changes;
     guint link_changes;
     guint block_changes;
-    guint missing_files;
+    guint missing_files_in_db;
+    guint missing_files_in_fs;
 } SummaryData;
 
 typedef enum change_type_t {
@@ -19,7 +20,8 @@ typedef enum change_type_t {
     CHANGE_INODE,
     CHANGE_LINKS,
     CHANGE_BLOCKS,
-    CHANGE_MISSING
+    CHANGE_MISSING_IN_DB,
+    CHANGE_MISSING_IN_FS
 } ChangeType;
 
 SummaryData *summary_new   (void);

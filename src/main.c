@@ -141,6 +141,12 @@ main (int argc, char *argv[])
     g_thread_join (consumer_thread);
     g_thread_pool_free (thread_pool, FALSE, TRUE);
 
+    if (config_data->mode == MODE_CHECK) {
+        handle_missing_files_from_fs (db_data, consumer_data->summary_data, FALSE);
+    } else if (config_data->mode == MODE_UPDATE) {
+        handle_missing_files_from_fs (db_data, consumer_data->summary_data, TRUE);
+    }
+
     print_summary (consumer_data->summary_data, config_data->mode);
     free_summary (consumer_data->summary_data);
 
