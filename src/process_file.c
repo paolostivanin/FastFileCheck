@@ -23,49 +23,6 @@ typedef struct file_info_t {
 } FileInfo;
 
 
-void
-handle_missing_files_from_fs (DatabaseData *db_data,
-                              SummaryData  *summary_data,
-                              gboolean      delete_file_from_db)
-{
-    MDB_txn *txn;
-    MDB_cursor *cursor;
-    MDB_val key, data;
-
-    int txn_flags = delete_file_from_db ? 0 : MDB_RDONLY;
-    int rc = mdb_txn_begin (db_data->env, NULL, txn_flags, &txn);
-    if (rc != 0) {
-        g_log (NULL, G_LOG_LEVEL_ERROR, "mdb_txn_begin failed: %s\n", mdb_strerror (rc));
-        return;
-    }
-
-    rc = mdb_cursor_open (txn, db_data->dbi, &cursor);
-    if (rc == 0) {
-        while (mdb_cursor_get (cursor, &key, &data, MDB_NEXT) == 0) {
-            gchar *db_filepath = g_strndup (key.mv_data, key.mv_size);
-            if (!g_file_test (db_filepath, G_FILE_TEST_EXISTS)) {
-                if (delete_file_from_db == FALSE) {
-                    record_change (summary_data, db_filepath, CHANGE_MISSING_IN_FS);
-                } else {
-                    rc = mdb_del (txn, db_data->dbi, &key, NULL);
-                    if (rc != 0) {
-                        g_log (NULL, G_LOG_LEVEL_ERROR, "mdb_del failed: %s\n", mdb_strerror (rc));
-                    }
-                }
-            }
-            g_free (db_filepath);
-        }
-        mdb_cursor_close (cursor);
-    }
-
-    if (delete_file_from_db) {
-        mdb_txn_commit (txn);
-    } else {
-        mdb_txn_abort (txn);
-    }
-}
-
-
 static gboolean
 validate_filepath (const char *filepath)
 {
@@ -92,7 +49,7 @@ compute_hash (const char    *filepath,
 
     // Use memory mapping if file size is less than 75% of per-thread RAM
     if (file_size > 0 && (gdouble)file_size < ((gdouble)per_thread_ram * MMAP_THRESHOLD_RATIO)) {
-        GMappedFile *mapped = g_mapped_file_new (filepath, FALSE, &error);
+        GMappedFile *mapped = g_mapped_file_new (filepath, FALSE, NULL);
         if (mapped) {
             const gchar *contents = g_mapped_file_get_contents (mapped);
             gsize length = g_mapped_file_get_length (mapped);
@@ -101,11 +58,10 @@ compute_hash (const char    *filepath,
             g_object_unref (file);
             return hash;
         }
-        g_log (NULL, G_LOG_LEVEL_INFO, "Failed to map file %s (%s). Falling back to chunked reading.\n", filepath, error->message);
-        g_clear_error (&error);
     }
 
     // Fall back to chunked reading
+    g_log (NULL, G_LOG_LEVEL_INFO, "Falling back to chunked reading for file %s\n", filepath);
     GFileInputStream *input_stream = g_file_read (file, NULL, &error);
     if (!input_stream) {
         g_log (NULL, G_LOG_LEVEL_ERROR, "Failed to open file (%s) for reading: %s\n", filepath, error->message);
@@ -302,6 +258,49 @@ handle_db_operation (const char     *filepath,
         mdb_txn_commit (txn);
 
     return TRUE;
+}
+
+
+void
+handle_missing_files_from_fs (DatabaseData *db_data,
+                              SummaryData  *summary_data,
+                              gboolean      delete_file_from_db)
+{
+    MDB_txn *txn;
+    MDB_cursor *cursor;
+    MDB_val key, data;
+
+    int txn_flags = delete_file_from_db ? 0 : MDB_RDONLY;
+    int rc = mdb_txn_begin (db_data->env, NULL, txn_flags, &txn);
+    if (rc != 0) {
+        g_log (NULL, G_LOG_LEVEL_ERROR, "mdb_txn_begin failed: %s\n", mdb_strerror (rc));
+        return;
+    }
+
+    rc = mdb_cursor_open (txn, db_data->dbi, &cursor);
+    if (rc == 0) {
+        while (mdb_cursor_get (cursor, &key, &data, MDB_NEXT) == 0) {
+            gchar *db_filepath = g_strndup (key.mv_data, key.mv_size);
+            if (!g_file_test (db_filepath, G_FILE_TEST_EXISTS)) {
+                if (delete_file_from_db == FALSE) {
+                    record_change (summary_data, db_filepath, CHANGE_MISSING_IN_FS);
+                } else {
+                    rc = mdb_del (txn, db_data->dbi, &key, NULL);
+                    if (rc != 0) {
+                        g_log (NULL, G_LOG_LEVEL_ERROR, "mdb_del failed: %s\n", mdb_strerror (rc));
+                    }
+                }
+            }
+            g_free (db_filepath);
+        }
+        mdb_cursor_close (cursor);
+    }
+
+    if (delete_file_from_db) {
+        mdb_txn_commit (txn);
+    } else {
+        mdb_txn_abort (txn);
+    }
 }
 
 
