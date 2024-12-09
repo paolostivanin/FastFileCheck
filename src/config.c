@@ -7,14 +7,20 @@
 static size_t
 get_free_memory (void)
 {
-    long pages = sysconf (_SC_AVPHYS_PAGES);
-    long pagesize = sysconf (_SC_PAGE_SIZE);
+    long pages = sysconf(_SC_AVPHYS_PAGES);
+    long pagesize = sysconf(_SC_PAGE_SIZE);
+
     if (pages == -1 || pagesize == -1) {
-        g_print ("Warning: Could not determine available memory, using 1GB default\n");
-        return 1024 * 1024 * 1024; // Default to 1GB
+        g_log(NULL, G_LOG_LEVEL_INFO, "Warning: sysconf failed, using default memory value");
+        return (1024 * 1024 * 1024);
     }
 
-    return (size_t)(pages * pagesize);
+    // Check for potential overflow before multiplying
+    if ((size_t)pages > G_MAXSIZE / (size_t)pagesize) {
+        return G_MAXSIZE;
+    }
+
+    return (size_t)pages * (size_t)pagesize;
 }
 
 
@@ -65,6 +71,7 @@ load_config (const char *config_path)
     GKeyFile *key_file = g_key_file_new ();
     if (!g_key_file_load_from_file (key_file, config_path, G_KEY_FILE_NONE, NULL)) {
         g_log (NULL, G_LOG_LEVEL_ERROR, "Failed to load config file: %s", config_path);
+        g_free (config_data);
         return NULL;
     }
 
