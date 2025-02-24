@@ -10,7 +10,7 @@ Features:
   * Hash
   * Inode number
   * Link count
- * Block count
+  * Block count
 * Three modes of operation:
   - add: to register new files in the database.
   - check: to verify files against stored information, flagging any mismatches.
