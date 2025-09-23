@@ -1,5 +1,6 @@
 #include <glib.h>
 #include <gio/gio.h>
+#include <limits.h>
 #include "process_directories.h"
 
 #define QUEUE_BUFFER_SIZE 1000
@@ -23,10 +24,14 @@ flush_queue_buffer (GPtrArray   *buffer,
                     GAsyncQueue *queue,
                     guint        max_size)
 {
+    guint sleep_us = 1000; // start with 1ms
     for (guint i = 0; i < buffer->len; i++) {
-        while (g_async_queue_length (queue) >= max_size) {
-            g_usleep (5000);
+        while ((guint)g_async_queue_length (queue) >= max_size) {
+            // Exponential backoff up to 10ms to reduce CPU while waiting for consumers
+            g_usleep (sleep_us);
+            if (sleep_us < 10000) sleep_us = MIN (sleep_us * 2, 10000);
         }
+        sleep_us = 1000; // reset after a successful push
         if (buffer->pdata[i] != NULL) g_async_queue_push (queue, buffer->pdata[i]);
     }
     g_ptr_array_set_size (buffer, 0);
@@ -92,17 +97,21 @@ scan_dir(const gchar    *dir_path,
         const gchar *entry = g_file_info_get_name (info);
         g_snprintf (path_buffer, PATH_BUFFER_SIZE, "%s/%s", dir_path, entry);
 
-        if (!should_skip_entry (entry, path_buffer, scan_ctx)) {
-            if (g_file_info_get_file_type (info) == G_FILE_TYPE_DIRECTORY) {
-                ctx->depth++;
-                scan_dir (path_buffer, max_depth, ctx, file_queue_data, scan_ctx);
-                ctx->depth--;
-            } else if (g_file_info_get_file_type (info) == G_FILE_TYPE_REGULAR) {
-                g_ptr_array_add (scan_ctx->queue_buffer, g_strdup(path_buffer));
+        if (should_skip_entry (entry, path_buffer, scan_ctx)) {
+            g_object_unref (info);
+            continue;
+        }
 
-                if (scan_ctx->queue_buffer->len >= QUEUE_BUFFER_SIZE) {
-                    flush_queue_buffer (scan_ctx->queue_buffer, file_queue_data->queue, file_queue_data->max_size);
-                }
+        GFileType ftype = g_file_info_get_file_type (info);
+        if (ftype == G_FILE_TYPE_DIRECTORY) {
+            ctx->depth++;
+            scan_dir (path_buffer, max_depth, ctx, file_queue_data, scan_ctx);
+            ctx->depth--;
+        } else if (ftype == G_FILE_TYPE_REGULAR) {
+            g_ptr_array_add (scan_ctx->queue_buffer, g_strdup(path_buffer));
+
+            if (scan_ctx->queue_buffer->len >= QUEUE_BUFFER_SIZE) {
+                flush_queue_buffer (scan_ctx->queue_buffer, file_queue_data->queue, file_queue_data->max_size);
             }
         }
         g_object_unref (info);

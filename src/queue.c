@@ -9,6 +9,11 @@ get_max_queue_size (guint64 usable_ram)
 {
     guint64 calculated_size = (usable_ram / MEMORY_FACTOR) / AVERAGE_PATH_LENGTH;
 
+    // Ensure at least a minimal queue size to avoid deadlocks when RAM is very small
+    if (calculated_size == 0) {
+        calculated_size = 1;
+    }
+
     // Cap at maximum gint value if needed
     if (calculated_size > G_MAXINT) {
         return G_MAXINT;

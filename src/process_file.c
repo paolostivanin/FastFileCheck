@@ -160,7 +160,8 @@ handle_db_operation (const char     *filepath,
         return FALSE;
     }
 
-    key.mv_size = g_utf8_strlen (filepath, -1) + 1;
+    // LMDB expects key size in bytes, not UTF-8 character count
+    key.mv_size = strlen (filepath) + 1;
     key.mv_data = (void*)filepath;
     // TODO: how to add verbosity? Currently nothing is shown (log file? print? what?)
     if (op == MODE_ADD) {
