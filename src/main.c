@@ -14,15 +14,16 @@ show_help(const gchar *prog_name)
     g_print ("%s v%s\n", prog_name, VERSION);
     g_print ("Project URL: https://github.com/paolostivanin/FastFileCheck\n\n");
     g_print ("Usage:\n");
-    g_print ("  %s [OPTION] COMMAND\n\n", prog_name);
+    g_print ("  %s [OPTIONS] COMMAND\n\n", prog_name);
     g_print ("Commands:\n");
     g_print ("  add     Add files to the database\n");
     g_print ("  check   Check files against the database\n");
     g_print ("  update  Remove/update files in the database\n\n");
     g_print ("Options:\n");
-    g_print ("  -h, --help     Show this help message and exit\n");
-    g_print ("  -v, --version  Show version information and exit\n");
-    g_print ("  -c, --config   Path to config file (default: /etc/ffc.conf)\n");
+    g_print ("  -h, --help      Show this help message and exit\n");
+    g_print ("  -v, --version   Show version information and exit\n");
+    g_print ("  -c, --config    Path to config file (default: /etc/ffc.conf)\n");
+    g_print ("  -V, --verbose   Verbose output with heartbeat/progress\n");
 }
 
 
@@ -57,43 +58,104 @@ queue_consumer(gpointer data)
     return NULL;
 }
 
+static gpointer
+progress_reporter (gpointer data)
+{
+    ConsumerData *consumer_data = (ConsumerData *)data;
+    // Periodically report progress until work is done
+    while (TRUE) {
+        g_usleep (2 * 1000 * 1000);
+        guint qlen = (guint)g_async_queue_length (consumer_data->file_queue_data->queue);
+        gboolean done = consumer_data->file_queue_data->scanning_done;
+        guint unprocessed = g_thread_pool_unprocessed (consumer_data->thread_pool);
+        g_message ("Progress: processed=%u, queue=%u, pending=%u, scanning_done=%s",
+                   consumer_data->summary_data->total_files_processed,
+                   qlen,
+                   unprocessed,
+                   done ? "yes" : "no");
+        if (done && qlen == 0 && unprocessed == 0) break;
+    }
+    return NULL;
+}
+
 
 int
 main (int argc, char *argv[])
 {
-    if (argc > 1 && (g_strcmp0 (argv[1], "-h") == 0 || g_strcmp0 (argv[1], "--help") == 0)) {
-        show_help (argv[0]);
-        return 0;
-    }
-
+    // Basic option parsing: allow --help/--version/--config PATH/--verbose before COMMAND
     const char *config_path = NULL;
-    if (argc == 4 && strcmp (argv[1], "--config") == 0) {
-        config_path = argv[2];
-        argc -= 2;
-        argv += 2;
+    gboolean verbose_flag = FALSE;
+
+    int i = 1;
+    while (i < argc && argv[i][0] == '-') {
+        if (g_strcmp0 (argv[i], "-h") == 0 || g_strcmp0 (argv[i], "--help") == 0) {
+            show_help (argv[0]);
+            return 0;
+        } else if (g_strcmp0 (argv[i], "-v") == 0 || g_strcmp0 (argv[i], "--version") == 0) {
+            g_print ("%s v%s\n", argv[0], VERSION);
+            return 0;
+        } else if (g_strcmp0 (argv[i], "-c") == 0 || g_strcmp0 (argv[i], "--config") == 0) {
+            if (i + 1 >= argc) {
+                show_help (argv[0]);
+                return -1;
+            }
+            config_path = argv[i + 1];
+            i += 2;
+            continue;
+        } else if (g_strcmp0 (argv[i], "-V") == 0 || g_strcmp0 (argv[i], "--verbose") == 0) {
+            verbose_flag = TRUE;
+            i++;
+            continue;
+        } else {
+            break;
+        }
     }
 
-    if (argc != 2) {
+    if (i >= argc) {
         show_help (argv[0]);
         return -1;
     }
 
+    const char *command = argv[i];
+
     ConfigData *config_data = load_config (config_path);
     if (config_data == NULL) return -1;
 
-    if (strcmp (argv[1], "add") == 0) {
+    // Apply CLI verbose preference
+    config_data->verbose = verbose_flag;
+    if (config_data->verbose) {
+        g_setenv ("G_MESSAGES_DEBUG", "all", TRUE);
+    }
+
+    // Install logger now that config is loaded
+    g_log_set_handler (NULL, G_LOG_LEVEL_MASK | G_LOG_FLAG_FATAL | G_LOG_FLAG_RECURSION, log_handler, config_data);
+
+    // Start time and diagnostics
+    GDateTime *start_wall = g_date_time_new_now_local ();
+    gchar *start_ts = g_date_time_format (start_wall, "%Y-%m-%d %H:%M:%S %Z");
+    gint64 start_mono_us = g_get_monotonic_time ();
+
+    // Verbose/debug diagnostics
+    g_debug ("Threads: %u (worker threads)", config_data->threads_count);
+    g_debug ("Usable RAM: %" G_GUINT64_FORMAT " bytes", config_data->usable_ram);
+    g_debug ("Max RAM per thread: %" G_GUINT64_FORMAT " bytes", config_data->max_ram_per_thread);
+    g_debug ("DB path: %s (size: %u bytes)", config_data->db_path, config_data->db_size_bytes);
+    g_debug ("Directories: %s", config_data->directories);
+    g_debug ("Max recursion depth: %u", config_data->max_recursion_depth);
+    g_debug ("Exclude hidden: %s", config_data->exclude_hidden ? "yes" : "no");
+
+    if (g_strcmp0 (command, "add") == 0) {
         config_data->mode = MODE_ADD;
-    } else if (strcmp (argv[1], "check") == 0) {
+    } else if (g_strcmp0 (command, "check") == 0) {
         config_data->mode = MODE_CHECK;
-    } else if (strcmp (argv[1], "update") == 0) {
+    } else if (g_strcmp0 (command, "update") == 0) {
         config_data->mode = MODE_UPDATE;
     } else {
         show_help (argv[0]);
         return -1;
     }
 
-    g_log_set_handler (NULL, G_LOG_LEVEL_MASK | G_LOG_FLAG_FATAL | G_LOG_FLAG_RECURSION, log_handler, config_data);
-    g_log (NULL, G_LOG_LEVEL_INFO, "Starting %s mode", config_data->mode == MODE_ADD ? "add" : config_data->mode == MODE_CHECK ? "check" : "update");
+    g_message ("Started %s at %s", config_data->mode == MODE_ADD ? "add" : config_data->mode == MODE_CHECK ? "check" : "update", start_ts);
 
     DatabaseData *db_data = init_db (config_data);
     if (db_data == NULL) return -1;
@@ -133,12 +195,17 @@ main (int argc, char *argv[])
     consumer_data->thread_pool = thread_pool;
 
     GThread *consumer_thread = g_thread_new ("queue-consumer", queue_consumer, consumer_data);
+    GThread *progress_thread = NULL;
+    if (config_data->verbose) {
+        progress_thread = g_thread_new ("progress-reporter", progress_reporter, consumer_data);
+    }
 
     gchar **dirs = g_strsplit (config_data->directories, ",", -1);
     process_directories (dirs, config_data->max_recursion_depth, file_queue_data, config_data);
     g_strfreev (dirs);
 
     g_thread_join (consumer_thread);
+    if (progress_thread) g_thread_join (progress_thread);
     g_thread_pool_free (thread_pool, FALSE, TRUE);
 
     if (config_data->mode == MODE_CHECK) {
@@ -147,10 +214,22 @@ main (int argc, char *argv[])
         handle_missing_files_from_fs (db_data, consumer_data->summary_data, TRUE);
     }
 
+    // End time and duration
+    GDateTime *end_wall = g_date_time_new_now_local ();
+    gchar *end_ts = g_date_time_format (end_wall, "%Y-%m-%d %H:%M:%S %Z");
+    gint64 end_mono_us = g_get_monotonic_time ();
+    gdouble elapsed_sec = (end_mono_us - start_mono_us) / 1000000.0;
+    g_message ("Completed at %s (duration: %.2f s)", end_ts, elapsed_sec);
+
     print_summary (consumer_data->summary_data, config_data->mode);
     free_summary (consumer_data->summary_data);
 
     cleanup_logger ();
+
+    g_free (start_ts);
+    g_date_time_unref (start_wall);
+    g_free (end_ts);
+    g_date_time_unref (end_wall);
 
     free_file_queue (file_queue_data);
     free_config (config_data);

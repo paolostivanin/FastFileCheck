@@ -40,6 +40,17 @@ log_handler (const gchar    *log_domain __attribute__((unused)),
         g_printerr ("[%s] %s\n", log_level & G_LOG_LEVEL_ERROR ? "ERROR" : "WARNING", message);
     }
 
+    // In verbose mode, also echo INFO/DEBUG/MESSAGE to stdout for live feedback
+    if (user_data) {
+        ConfigData *cfg = (ConfigData *)user_data;
+        if (cfg->verbose) {
+            GLogLevelFlags level = (log_level & G_LOG_LEVEL_MASK);
+            if (level == G_LOG_LEVEL_INFO || level == G_LOG_LEVEL_DEBUG || level == G_LOG_LEVEL_MESSAGE) {
+                g_print ("%s\n", message);
+            }
+        }
+    }
+
     if (!user_data) return;
 
     ConfigData *config = (ConfigData *)user_data;

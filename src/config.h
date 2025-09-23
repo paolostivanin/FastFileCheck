@@ -35,6 +35,8 @@ typedef struct config_t {
     gchar *exclude_directories;
     gchar *exclude_extensions;
 
+    gboolean verbose; // enable verbose console output and debug logs
+
     Mode mode;
 } ConfigData;
 
