@@ -46,7 +46,13 @@ init_db (ConfigData *config_data)
         return NULL;
     }
 
-    rc = mdb_env_open (db_data->env, config_data->db_path, 0, 0644);
+    unsigned int env_flags = 0;
+    if (config_data->db_writemap)   env_flags |= MDB_WRITEMAP;
+    if (config_data->db_mapasync)   env_flags |= MDB_MAPASYNC;
+    if (config_data->db_nosync)     env_flags |= MDB_NOSYNC;
+    if (config_data->db_nometasync) env_flags |= MDB_NOMETASYNC;
+
+    rc = mdb_env_open (db_data->env, config_data->db_path, env_flags, 0644);
     if (rc != 0) {
         g_log (NULL, G_LOG_LEVEL_ERROR, "Error in mdb_env_open: %s", mdb_strerror (rc));
         mdb_env_close (db_data->env);

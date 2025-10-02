@@ -114,6 +114,12 @@ load_config (const char *config_path)
         return NULL;
     }
 
+    // LMDB durability/perf toggles (default to safe=false)
+    config_data->db_nosync = g_key_file_get_boolean (key_file, "database", "lmdb_nosync", NULL);
+    config_data->db_nometasync = g_key_file_get_boolean (key_file, "database", "lmdb_nometasync", NULL);
+    config_data->db_mapasync = g_key_file_get_boolean (key_file, "database", "lmdb_mapasync", NULL);
+    config_data->db_writemap = g_key_file_get_boolean (key_file, "database", "lmdb_writemap", NULL);
+
     gboolean t_val_bool = g_key_file_get_boolean (key_file, "logging", "log_to_file_enabled", &config_error);
     if (!t_val_bool && (config_error != NULL && (config_error->code == G_KEY_FILE_ERROR_INVALID_VALUE || config_error->code == G_KEY_FILE_ERROR_KEY_NOT_FOUND))) {
         g_log (NULL, G_LOG_LEVEL_WARNING, "Couldn't get the value for log_to_file_enabled. Setting it to the default one.");

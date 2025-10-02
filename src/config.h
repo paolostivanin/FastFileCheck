@@ -25,6 +25,11 @@ typedef struct config_t {
 
     gchar *db_path;
     guint db_size_bytes;
+    // LMDB performance/durability toggles
+    gboolean db_nosync;      // Reduce fsync frequency (unsafe on power loss)
+    gboolean db_nometasync;  // Skip metadata syncs (unsafe on power loss)
+    gboolean db_mapasync;    // Allow OS to flush asynchronously (unsafe on crash)
+    gboolean db_writemap;    // Use writeable memory map (faster, but riskier with multiple processes)
 
     gboolean logging_enabled;
     gchar *log_path;
