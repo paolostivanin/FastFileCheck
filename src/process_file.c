@@ -61,7 +61,7 @@ compute_hash (const char    *filepath,
     }
 
     // Fall back to chunked reading
-    g_log (NULL, G_LOG_LEVEL_INFO, "Falling back to chunked reading for file %s\n", filepath);
+    g_log (NULL, G_LOG_LEVEL_DEBUG, "Falling back to chunked reading for file %s\n", filepath);
     GFileInputStream *input_stream = g_file_read (file, NULL, &error);
     if (!input_stream) {
         g_log (NULL, G_LOG_LEVEL_ERROR, "Failed to open file (%s) for reading: %s\n", filepath, error->message);
@@ -177,7 +177,7 @@ handle_db_operation (const char     *filepath,
             return FALSE;
         }
         g_free(entry.filepath);
-        summary_data->total_files_processed++;
+        summary_increment_processed (summary_data, 1);
     } else {
         rc = mdb_get (txn, db_data->dbi, &key, &data);
         if (rc != 0) {
@@ -206,7 +206,7 @@ handle_db_operation (const char     *filepath,
             if (op == MODE_CHECK) {
                 record_change (summary_data, filepath, CHANGE_MISSING_IN_DB);
             }
-            summary_data->total_files_processed++;
+            summary_increment_processed (summary_data, 1);
         } else {
             FileEntryData *stored = (FileEntryData *)data.mv_data;
             if (op == MODE_CHECK) {
@@ -228,7 +228,7 @@ handle_db_operation (const char     *filepath,
                     change_recorded = TRUE;
                 }
                 if (!change_recorded) {
-                    summary_data->total_files_processed++;
+                    summary_increment_processed (summary_data, 1);
                 }
             } else if (op == MODE_UPDATE &&
                       (info->hash != stored->hash ||
@@ -248,7 +248,7 @@ handle_db_operation (const char     *filepath,
                     return FALSE;
                 }
                 g_free (entry.filepath);
-                summary_data->total_files_processed++;
+                summary_increment_processed (summary_data, 1);
             }
         }
     }

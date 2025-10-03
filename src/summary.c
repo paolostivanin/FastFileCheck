@@ -27,6 +27,7 @@ summary_new (void)
         g_log (NULL, G_LOG_LEVEL_ERROR, "Failed to allocate memory for SummaryData");
         return NULL;
     }
+    g_mutex_init (&summary_data->mutex);
     summary_data->changed_files = g_hash_table_new_full (g_str_hash, g_str_equal, g_free, (GDestroyNotify)g_array_unref);
     return summary_data;
 }
@@ -37,6 +38,8 @@ record_change (SummaryData *summary_data,
                const char  *filepath,
                ChangeType   change)
 {
+    g_mutex_lock (&summary_data->mutex);
+
     GArray *changes = g_hash_table_lookup (summary_data->changed_files, filepath);
     if (!changes) {
         changes = g_array_new( FALSE, FALSE, sizeof(ChangeType));
@@ -53,6 +56,23 @@ record_change (SummaryData *summary_data,
         case CHANGE_MISSING_IN_DB: summary_data->missing_files_in_db++; break;
         case CHANGE_MISSING_IN_FS: summary_data->missing_files_in_fs++; break;
     }
+
+    g_mutex_unlock (&summary_data->mutex);
+}
+
+
+void
+summary_increment_processed (SummaryData *summary_data,
+                             guint        delta)
+{
+    g_atomic_int_add ((volatile gint*)&summary_data->total_files_processed, (gint)delta);
+}
+
+
+guint
+summary_get_processed (SummaryData *summary_data)
+{
+    return (guint)g_atomic_int_get ((volatile gint*)&summary_data->total_files_processed);
 }
 
 
@@ -100,6 +120,7 @@ free_summary (SummaryData *summary_data)
 {
     if (summary_data) {
         g_hash_table_destroy (summary_data->changed_files);
+        g_mutex_clear (&summary_data->mutex);
         g_free (summary_data);
     }
 }

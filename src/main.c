@@ -6,6 +6,7 @@
 #include "process_file.h"
 #include "version.h"
 #include "logging.h"
+#include "summary.h"
 
 
 void
@@ -69,7 +70,7 @@ progress_reporter (gpointer data)
         gboolean done = consumer_data->file_queue_data->scanning_done;
         guint unprocessed = g_thread_pool_unprocessed (consumer_data->thread_pool);
         g_message ("Progress: processed=%u, queue=%u, pending=%u, scanning_done=%s",
-                   consumer_data->summary_data->total_files_processed,
+                   summary_get_processed (consumer_data->summary_data),
                    qlen,
                    unprocessed,
                    done ? "yes" : "no");

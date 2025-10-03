@@ -72,6 +72,7 @@ load_config (const char *config_path)
     if (!g_key_file_load_from_file (key_file, config_path, G_KEY_FILE_NONE, NULL)) {
         g_log (NULL, G_LOG_LEVEL_ERROR, "Failed to load config file: %s", config_path);
         g_free (config_data);
+        g_key_file_free (key_file);
         return NULL;
     }
 
@@ -111,6 +112,8 @@ load_config (const char *config_path)
     g_free (t_str);
     if (!validate_dir_path (config_data->db_path)) {
         // If the database directory cannot be created or is not writable, we must fail and exit
+        g_key_file_free (key_file);
+        free_config (config_data);
         return NULL;
     }
 
@@ -165,6 +168,8 @@ load_config (const char *config_path)
     t_str = g_key_file_get_string (key_file, "scanning", "directories", NULL);
     if (!t_str || g_utf8_strlen (t_str, -1) < 1) {
         g_log (NULL, G_LOG_LEVEL_ERROR, "Couldn't get the value for which directories to scan, exiting.");
+        g_key_file_free (key_file);
+        free_config (config_data);
         return NULL;
     }
     config_data->directories = g_strdup (t_str);
