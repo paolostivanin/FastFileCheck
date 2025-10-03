@@ -12,7 +12,6 @@
 void
 show_help(const gchar *prog_name)
 {
-    g_print ("%s v%s\n", prog_name, VERSION);
     g_print ("Project URL: https://github.com/paolostivanin/FastFileCheck\n\n");
     g_print ("Usage:\n");
     g_print ("  %s [OPTIONS] COMMAND\n\n", prog_name);
@@ -93,7 +92,7 @@ main (int argc, char *argv[])
             show_help (argv[0]);
             return 0;
         } else if (g_strcmp0 (argv[i], "-v") == 0 || g_strcmp0 (argv[i], "--version") == 0) {
-            g_print ("%s v%s\n", argv[0], VERSION);
+            g_print ("%s v%s\n", argv[0], FASTFILECHECK_VERSION_FULL);
             return 0;
         } else if (g_strcmp0 (argv[i], "-c") == 0 || g_strcmp0 (argv[i], "--config") == 0) {
             if (i + 1 >= argc) {
