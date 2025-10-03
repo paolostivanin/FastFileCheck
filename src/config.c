@@ -10,17 +10,20 @@ get_free_memory (void)
     long pages = sysconf(_SC_AVPHYS_PAGES);
     long pagesize = sysconf(_SC_PAGE_SIZE);
 
-    if (pages == -1 || pagesize == -1) {
-        g_log(NULL, G_LOG_LEVEL_INFO, "Warning: sysconf failed, using default memory value");
+    if (pages <= 0 || pagesize <= 0) {
+        g_log(NULL, G_LOG_LEVEL_INFO, "Warning: sysconf returned non-positive values, using default memory value");
         return (1024 * 1024 * 1024);
     }
 
     // Check for potential overflow before multiplying
-    if ((size_t)pages > G_MAXSIZE / (size_t)pagesize) {
+    size_t upages = (size_t)pages;
+    size_t upagesize = (size_t)pagesize;
+    if (upages > G_MAXSIZE / upagesize) {
+        // Saturate to the maximum representable size to avoid wraparound
         return G_MAXSIZE;
     }
 
-    return (size_t)pages * (size_t)pagesize;
+    return upages * upagesize;
 }
 
 

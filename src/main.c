@@ -125,7 +125,9 @@ main (int argc, char *argv[])
     // Apply CLI verbose preference
     config_data->verbose = verbose_flag;
     if (config_data->verbose) {
-        g_setenv ("G_MESSAGES_DEBUG", "all", TRUE);
+        if (!g_setenv ("G_MESSAGES_DEBUG", "all", TRUE)) {
+            g_log (NULL, G_LOG_LEVEL_WARNING, "Failed to set G_MESSAGES_DEBUG environment variable; continuing without verbose GLib messages");
+        }
     }
 
     // Install logger now that config is loaded
