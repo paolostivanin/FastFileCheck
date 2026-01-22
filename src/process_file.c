@@ -1,5 +1,8 @@
 #include <glib.h>
-#include <gio/gio.h>
+#include <errno.h>
+#include <fcntl.h>
+#include <sys/mman.h>
+#include <unistd.h>
 #include <sys/stat.h>
 #include <xxhash.h>
 #include "queue.h"
@@ -32,51 +35,45 @@ validate_filepath (const char *filepath)
 
 static guint64
 compute_hash (const char    *filepath,
-              const guint64  per_thread_ram)
+              const guint64  per_thread_ram,
+              const off_t    file_size)
 {
-    GError *error = NULL;
-    GFile *file = g_file_new_for_path (filepath);
-    GFileInfo *file_info = g_file_query_info (file, G_FILE_ATTRIBUTE_STANDARD_SIZE, G_FILE_QUERY_INFO_NONE, NULL, &error);
-    if (!file_info) {
-        g_log (NULL, G_LOG_LEVEL_ERROR, "Failed to query file info: %s\n", error->message);
-        g_clear_error (&error);
-        g_object_unref (file);
+    int fd = open (filepath, O_RDONLY | O_CLOEXEC);
+    if (fd < 0) {
+        g_log (NULL, G_LOG_LEVEL_ERROR, "Failed to open file (%s): %s\n", filepath, g_strerror (errno));
         return 0;
     }
 
-    const goffset file_size = g_file_info_get_size (file_info);
-    g_object_unref (file_info);
+#ifdef POSIX_FADV_SEQUENTIAL
+    (void)posix_fadvise (fd, 0, 0, POSIX_FADV_SEQUENTIAL);
+#endif
+
+    if (file_size == 0) {
+        XXH64_hash_t hash = XXH3_64bits (NULL, 0);
+        close (fd);
+        return hash;
+    }
 
     // Use memory mapping if file size is less than 75% of per-thread RAM
     if (file_size > 0 && (gdouble)file_size < ((gdouble)per_thread_ram * MMAP_THRESHOLD_RATIO)) {
-        GMappedFile *mapped = g_mapped_file_new (filepath, FALSE, NULL);
-        if (mapped) {
-            const gchar *contents = g_mapped_file_get_contents (mapped);
-            gsize length = g_mapped_file_get_length (mapped);
-            XXH64_hash_t hash = XXH3_64bits (contents, length);
-            g_mapped_file_unref (mapped);
-            g_object_unref (file);
+        void *mapped = mmap (NULL, (size_t)file_size, PROT_READ, MAP_PRIVATE, fd, 0);
+        if (mapped != MAP_FAILED) {
+            XXH64_hash_t hash = XXH3_64bits (mapped, (size_t)file_size);
+            munmap (mapped, (size_t)file_size);
+            close (fd);
             return hash;
         }
     }
 
     // Fall back to chunked reading
     g_log (NULL, G_LOG_LEVEL_DEBUG, "Falling back to chunked reading for file %s\n", filepath);
-    GFileInputStream *input_stream = g_file_read (file, NULL, &error);
-    if (!input_stream) {
-        g_log (NULL, G_LOG_LEVEL_ERROR, "Failed to open file (%s) for reading: %s\n", filepath, error->message);
-        g_clear_error (&error);
-        g_object_unref (file);
-        return 0;
-    }
 
     const gsize buffer_size = CLAMP(per_thread_ram / 4, MIN_BUFFER_SIZE, MAX_BUFFER_SIZE);
 
     guchar *buffer = g_try_malloc0_n (buffer_size, sizeof(guchar));
     if (!buffer) {
         g_log (NULL, G_LOG_LEVEL_ERROR, "Failed to allocate buffer for file %s\n", filepath);
-        g_object_unref (input_stream);
-        g_object_unref (file);
+        close (fd);
         return 0;
     }
 
@@ -84,16 +81,27 @@ compute_hash (const char    *filepath,
     if (!state) {
         g_log (NULL, G_LOG_LEVEL_ERROR, "Failed to create XXH3 state for file %s\n", filepath);
         g_free (buffer);
-        g_object_unref (input_stream);
-        g_object_unref (file);
+        close (fd);
         return 0;
     }
 
     XXH3_64bits_reset (state);
 
-    gssize bytes_read;
-    while ((bytes_read = g_input_stream_read (G_INPUT_STREAM(input_stream), buffer, buffer_size, NULL, NULL)) > 0) {
-        XXH3_64bits_update (state, buffer, bytes_read);
+    ssize_t bytes_read;
+    while (TRUE) {
+        bytes_read = read (fd, buffer, buffer_size);
+        if (bytes_read > 0) {
+            XXH3_64bits_update (state, buffer, (size_t)bytes_read);
+            continue;
+        }
+        if (bytes_read == 0) {
+            break;
+        }
+        if (errno == EINTR) {
+            continue;
+        }
+        g_log (NULL, G_LOG_LEVEL_ERROR, "Failed to read file (%s): %s\n", filepath, g_strerror (errno));
+        break;
     }
 
     XXH64_hash_t hash = 0;
@@ -103,9 +111,7 @@ compute_hash (const char    *filepath,
 
     g_free (buffer);
     XXH3_freeState (state);
-    g_object_unref (input_stream);
-    g_object_unref (file);
-    g_clear_error (&error);
+    close (fd);
 
     return hash;
 }
@@ -121,7 +127,7 @@ get_file_info (const char    *filepath,
         return FALSE;
     }
 
-    info->hash = compute_hash (filepath, per_thread_ram);
+    info->hash = compute_hash (filepath, per_thread_ram, info->st.st_size);
     if (info->hash == 0) {
         g_log (NULL, G_LOG_LEVEL_ERROR, "Could not compute hash for file: %s\n", filepath);
         return FALSE;
@@ -253,10 +259,15 @@ handle_db_operation (const char     *filepath,
         }
     }
 
-    if (op == MODE_CHECK)
+    if (op == MODE_CHECK) {
         mdb_txn_abort (txn);
-    else
-        mdb_txn_commit (txn);
+    } else {
+        rc = mdb_txn_commit (txn);
+        if (rc != 0) {
+            g_log (NULL, G_LOG_LEVEL_ERROR, "mdb_txn_commit failed: %s\n", mdb_strerror (rc));
+            return FALSE;
+        }
+    }
 
     return TRUE;
 }
@@ -279,7 +290,9 @@ handle_missing_files_from_fs (DatabaseData *db_data,
     }
 
     rc = mdb_cursor_open (txn, db_data->dbi, &cursor);
-    if (rc == 0) {
+    if (rc != 0) {
+        g_log (NULL, G_LOG_LEVEL_ERROR, "mdb_cursor_open failed: %s\n", mdb_strerror (rc));
+    } else {
         while (mdb_cursor_get (cursor, &key, &data, MDB_NEXT) == 0) {
             gchar *db_filepath = g_strndup (key.mv_data, key.mv_size);
             if (!g_file_test (db_filepath, G_FILE_TEST_EXISTS)) {

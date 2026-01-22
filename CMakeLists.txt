@@ -3,7 +3,7 @@ cmake_minimum_required(VERSION 3.10)
 project(FastFileCheck VERSION 1.0.0 LANGUAGES C)
 
 # Pre-release tag (can be empty)
-set(PROJECT_VERSION_SUFFIX "-beta3")
+set(PROJECT_VERSION_SUFFIX "-beta4")
 
 # Compose full version (e.g., 1.0.0-beta3). If suffix is empty, it's just the version.
 set(PROJECT_VERSION_FULL "${PROJECT_VERSION}${PROJECT_VERSION_SUFFIX}")

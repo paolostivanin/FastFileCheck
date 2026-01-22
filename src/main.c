@@ -34,6 +34,7 @@ worker_thread (gpointer data,
     gchar *file_path = (gchar *)data;
     ConsumerData *consumer_data = (ConsumerData *)user_data;
     process_file (file_path, consumer_data);
+    g_free (file_path);
 }
 
 
@@ -42,18 +43,16 @@ queue_consumer(gpointer data)
 {
     ConsumerData *consumer_data = (ConsumerData *)data;
     while (TRUE) {
-        gchar *file_path = g_async_queue_try_pop (consumer_data->file_queue_data->queue);
-        if (file_path == NULL) {
-            if (consumer_data->file_queue_data->scanning_done) {
-                // Drain any remaining items
-                while ((file_path = g_async_queue_try_pop (consumer_data->file_queue_data->queue)) != NULL) {
-                    g_thread_pool_push (consumer_data->thread_pool, file_path, NULL);
-                }
-                break;
-            }
-            g_usleep (1000);
+        gchar *file_path = g_async_queue_timeout_pop (consumer_data->file_queue_data->queue, 100 * 1000);
+        if (file_path != NULL) {
+            g_thread_pool_push (consumer_data->thread_pool, file_path, NULL);
+            continue;
         }
-        if (file_path != NULL) g_thread_pool_push (consumer_data->thread_pool, file_path, NULL);
+
+        if (consumer_data->file_queue_data->scanning_done &&
+            g_async_queue_length (consumer_data->file_queue_data->queue) == 0) {
+            break;
+        }
     }
     return NULL;
 }

@@ -36,6 +36,10 @@ get_usable_threads (void)
         return 1;
     }
 
+    if (num_processors <= 1) {
+        return 1;
+    }
+
     return (guint)(num_processors - 1);
 }
 
@@ -181,15 +185,17 @@ load_config (const char *config_path)
     t_str = g_key_file_get_string (key_file, "scanning", "exclude_directories", NULL);
     if (!t_str || g_utf8_strlen (t_str, -1) < 1) {
         g_log (NULL, G_LOG_LEVEL_INFO, "No directories configured to be excluded.");
+    } else if (g_utf8_strlen (t_str, -1) > 0) {
+        config_data->exclude_directories = g_strdup (t_str);
     }
-    if (g_utf8_strlen (t_str, -1) > 0) config_data->exclude_directories = g_strdup (t_str);
     g_free (t_str);
 
     t_str = g_key_file_get_string (key_file, "scanning", "exclude_extensions", NULL);
     if (!t_str || g_utf8_strlen (t_str, -1) < 1) {
         g_log (NULL, G_LOG_LEVEL_INFO, "No file extensions configured to be excluded.");
+    } else if (g_utf8_strlen (t_str, -1) > 0) {
+        config_data->exclude_extensions = g_strdup (t_str);
     }
-    if (g_utf8_strlen (t_str, -1) > 0) config_data->exclude_extensions = g_strdup (t_str);
     g_free (t_str);
 
     g_key_file_free (key_file);
