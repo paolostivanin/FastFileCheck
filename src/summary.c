@@ -1,4 +1,6 @@
 #include <glib.h>
+#include <stdio.h>
+#include <string.h>
 #include "summary.h"
 
 #include "config.h"
@@ -19,12 +21,27 @@ change_type_to_string (ChangeType type)
 }
 
 
+static const gchar *
+change_type_to_json_key (ChangeType type)
+{
+    switch (type) {
+        case CHANGE_HASH:           return "hash_mismatch";
+        case CHANGE_INODE:          return "inode_changed";
+        case CHANGE_LINKS:          return "link_count_changed";
+        case CHANGE_BLOCKS:         return "block_count_changed";
+        case CHANGE_MISSING_IN_DB:  return "missing_in_db";
+        case CHANGE_MISSING_IN_FS:  return "missing_in_fs";
+        default:                    return "unknown";
+    }
+}
+
+
 SummaryData *
 summary_new (void)
 {
     SummaryData *summary_data = g_try_new0 (SummaryData, 1);
     if (!summary_data) {
-        g_log (NULL, G_LOG_LEVEL_ERROR, "Failed to allocate memory for SummaryData");
+        g_critical ("Failed to allocate memory for SummaryData");
         return NULL;
     }
     g_mutex_init (&summary_data->mutex);
@@ -77,10 +94,27 @@ summary_get_processed (SummaryData *summary_data)
 
 
 void
+summary_record_error (SummaryData *summary_data)
+{
+    g_atomic_int_inc ((volatile gint*)&summary_data->errors);
+}
+
+
+guint
+summary_get_errors (SummaryData *summary_data)
+{
+    return (guint)g_atomic_int_get ((volatile gint*)&summary_data->errors);
+}
+
+
+void
 print_summary (SummaryData *summary_data, Mode mode)
 {
     g_print ("\n=== Summary ===\n");
     g_print ("Total files processed: %u\n", summary_data->total_files_processed);
+    if (summary_data->errors > 0) {
+        g_print ("Errors: %u (see the messages above or the log file; the exit code will be 2)\n", summary_data->errors);
+    }
 
     if (mode == MODE_CHECK) {
         if (summary_data->files_with_changes > 0) {
@@ -110,8 +144,85 @@ print_summary (SummaryData *summary_data, Mode mode)
             g_print ("No changes detected.\n");
         }
     } else {
-        g_print ("Database %s completed successfully.\n", mode == MODE_ADD ? "addition" : "update");
+        if (summary_data->errors > 0) {
+            g_print ("Database %s finished WITH ERRORS.\n", mode == MODE_ADD ? "addition" : "update");
+        } else {
+            g_print ("Database %s completed successfully.\n", mode == MODE_ADD ? "addition" : "update");
+        }
     }
+}
+
+
+static void
+json_escape_string (const gchar *input, FILE *out)
+{
+    fputc ('"', out);
+    for (const gchar *p = input; *p; p++) {
+        switch (*p) {
+            case '"':  fputs ("\\\"", out); break;
+            case '\\': fputs ("\\\\", out); break;
+            case '\b': fputs ("\\b", out); break;
+            case '\f': fputs ("\\f", out); break;
+            case '\n': fputs ("\\n", out); break;
+            case '\r': fputs ("\\r", out); break;
+            case '\t': fputs ("\\t", out); break;
+            default:
+                if ((unsigned char)*p < 0x20) {
+                    fprintf (out, "\\u%04x", (unsigned char)*p);
+                } else {
+                    fputc (*p, out);
+                }
+        }
+    }
+    fputc ('"', out);
+}
+
+
+void
+print_summary_json (SummaryData *summary_data,
+                    Mode         mode,
+                    gdouble      elapsed_sec)
+{
+    const gchar *mode_str;
+    switch (mode) {
+        case MODE_ADD:    mode_str = "add"; break;
+        case MODE_CHECK:  mode_str = "check"; break;
+        case MODE_UPDATE: mode_str = "update"; break;
+        default:          mode_str = "unknown"; break;
+    }
+
+    fprintf (stdout, "{\n");
+    fprintf (stdout, "  \"mode\": \"%s\",\n", mode_str);
+    fprintf (stdout, "  \"total_processed\": %u,\n", summary_data->total_files_processed);
+    fprintf (stdout, "  \"files_with_changes\": %u,\n", summary_data->files_with_changes);
+    fprintf (stdout, "  \"errors\": %u,\n", summary_data->errors);
+    fprintf (stdout, "  \"duration_seconds\": %.2f", elapsed_sec);
+
+    if (summary_data->files_with_changes > 0) {
+        fprintf (stdout, ",\n  \"changes\": {\n");
+        GHashTableIter iter;
+        gpointer key, value;
+        g_hash_table_iter_init (&iter, summary_data->changed_files);
+        gboolean first_file = TRUE;
+        while (g_hash_table_iter_next (&iter, &key, &value)) {
+            if (!first_file) fprintf (stdout, ",\n");
+            first_file = FALSE;
+            fprintf (stdout, "    ");
+            json_escape_string ((const gchar *)key, stdout);
+            fprintf (stdout, ": [");
+            GArray *changes = value;
+            for (guint i = 0; i < changes->len; i++) {
+                if (i > 0) fprintf (stdout, ", ");
+                ChangeType change = g_array_index (changes, ChangeType, i);
+                fprintf (stdout, "\"%s\"", change_type_to_json_key (change));
+            }
+            fprintf (stdout, "]");
+        }
+        fprintf (stdout, "\n  }");
+    }
+
+    fprintf (stdout, "\n}\n");
+    fflush (stdout);
 }
 
 

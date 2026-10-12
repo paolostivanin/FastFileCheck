@@ -11,3 +11,4 @@
 # cmake and clion stuff
 cmake-build-debug/
 .idea/
+/build/

@@ -1,8 +1,10 @@
 #include <glib.h>
 #include "queue.h"
+#include "file_task.h"
 
 #define AVERAGE_PATH_LENGTH 256  // Conservative estimate for path length
 #define MEMORY_FACTOR        10  // Use 10% of available RAM for queue
+#define HDD_QUEUE_FILES   16384  // HDD mode: the scanner may run one I/O-scheduler window ahead, no more
 
 static gint
 get_max_queue_size (guint64 usable_ram)
@@ -32,14 +34,17 @@ free_file_queue (FileQueueData *file_queue_data)
 
 
 FileQueueData *
-init_file_queue (guint64 usable_ram)
+init_file_queue (guint64  usable_ram,
+                 gboolean hdd_mode)
 {
     FileQueueData *file_queue_data = g_try_new0 (FileQueueData, 1);
     if (!file_queue_data) {
-        g_log (NULL, G_LOG_LEVEL_ERROR, "Failed to allocate memory for file_queue_data");
+        g_critical ("Failed to allocate memory for file_queue_data");
         return NULL;
     }
-    file_queue_data->queue = g_async_queue_new_full (g_free);
-    file_queue_data->max_size = get_max_queue_size (usable_ram);
+    file_queue_data->queue = g_async_queue_new_full ((GDestroyNotify)file_task_free);
+    // On a rotational disk the scanner (directory/inode reads) and the readers (data) share the
+    // spindle: do not let the scanner race ahead of the data phase, or they just fight for the head.
+    file_queue_data->max_size = hdd_mode ? HDD_QUEUE_FILES : get_max_queue_size (usable_ram);
     return file_queue_data;
 }

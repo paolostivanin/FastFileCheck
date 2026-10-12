@@ -49,13 +49,13 @@ validate_dir_path (const gchar *path)
 {
     if (!g_file_test (path, G_FILE_TEST_IS_DIR)) {
         if (g_mkdir_with_parents (path, 0755) != 0) {
-            g_log (NULL, G_LOG_LEVEL_ERROR, "Unable to create the directory: %s\n", path);
+            g_critical ("Unable to create the directory: %s", path);
             return FALSE;
         }
     }
 
     if (g_access (path, W_OK) != 0) {
-        g_log (NULL, G_LOG_LEVEL_ERROR, "Directory is not writable: %s\n", path);
+        g_critical ("Directory is not writable: %s", path);
         return FALSE;
     }
 
@@ -68,7 +68,7 @@ load_config (const char *config_path)
 {
     ConfigData *config_data = g_try_new0 (ConfigData, 1);
     if (!config_data) {
-        g_log (NULL, G_LOG_LEVEL_ERROR, "Failed to allocate memory for config_data");
+        g_critical ("Failed to allocate memory for config_data");
         return NULL;
     }
 
@@ -77,7 +77,7 @@ load_config (const char *config_path)
 
     GKeyFile *key_file = g_key_file_new ();
     if (!g_key_file_load_from_file (key_file, config_path, G_KEY_FILE_NONE, NULL)) {
-        g_log (NULL, G_LOG_LEVEL_ERROR, "Failed to load config file: %s", config_path);
+        g_critical ("Failed to load config file: %s", config_path);
         g_free (config_data);
         g_key_file_free (key_file);
         return NULL;
@@ -98,6 +98,13 @@ load_config (const char *config_path)
     // Reserve one thread for the queue-consumer thread
     config_data->threads_count = (config_data->threads_count > 2) ? config_data->threads_count-1 : config_data->threads_count;
 
+    // I/O threads (default: 0 = same as threads_count). It can only lower the worker pool size.
+    t_val = g_key_file_get_integer (key_file, "settings", "io_threads", NULL);
+    config_data->io_threads = (t_val > 0) ? (guint)t_val : 0;
+    if (config_data->io_threads > 0 && config_data->io_threads < config_data->threads_count) {
+        config_data->threads_count = config_data->io_threads;
+    }
+
     t_val = g_key_file_get_integer (key_file, "settings", "ram_usage_percent", &config_error);
     if ((config_error != NULL && config_error->code == G_KEY_FILE_ERROR_KEY_NOT_FOUND) || t_val < 10 || t_val > 90) {
         g_log (NULL, G_LOG_LEVEL_WARNING, "Invalid ram_usage_percent value: %u. Using the default value instead.", t_val);
@@ -105,14 +112,13 @@ load_config (const char *config_path)
         g_clear_error (&config_error);
     }
     config_data->usable_ram = get_free_memory () * t_val / 100;
-    config_data->max_ram_per_thread = config_data->usable_ram / config_data->threads_count;
 
     t_val = g_key_file_get_integer (key_file, "database", "db_size_mb", NULL);
     if (t_val < 5) {
         g_log (NULL, G_LOG_LEVEL_WARNING, "Invalid db_size_mb value: %u. Using the default value instead.", t_val);
         t_val = DEFAULT_DB_SIZE_IN_MB;
     }
-    config_data->db_size_bytes = t_val * 1024 * 1024;
+    config_data->db_size_bytes = (guint64)t_val * 1024 * 1024;
 
     gchar *t_str = g_key_file_get_string (key_file, "database", "db_path", NULL);
     config_data->db_path = (t_str != NULL) ? g_strdup (t_str) : g_strdup (DEFAULT_DB_PATH);
@@ -129,6 +135,10 @@ load_config (const char *config_path)
     config_data->db_nometasync = g_key_file_get_boolean (key_file, "database", "lmdb_nometasync", NULL);
     config_data->db_mapasync = g_key_file_get_boolean (key_file, "database", "lmdb_mapasync", NULL);
     config_data->db_writemap = g_key_file_get_boolean (key_file, "database", "lmdb_writemap", NULL);
+
+    // DB batch size for writer thread
+    t_val = g_key_file_get_integer (key_file, "database", "db_batch_size", NULL);
+    config_data->db_batch_size = (t_val > 0) ? (guint)t_val : DEFAULT_DB_BATCH_SIZE;
 
     gboolean t_val_bool = g_key_file_get_boolean (key_file, "logging", "log_to_file_enabled", &config_error);
     if (!t_val_bool && (config_error != NULL && (config_error->code == G_KEY_FILE_ERROR_INVALID_VALUE || config_error->code == G_KEY_FILE_ERROR_KEY_NOT_FOUND))) {
@@ -174,7 +184,7 @@ load_config (const char *config_path)
 
     t_str = g_key_file_get_string (key_file, "scanning", "directories", NULL);
     if (!t_str || g_utf8_strlen (t_str, -1) < 1) {
-        g_log (NULL, G_LOG_LEVEL_ERROR, "Couldn't get the value for which directories to scan, exiting.");
+        g_critical ("Couldn't get the value for which directories to scan, exiting.");
         g_key_file_free (key_file);
         free_config (config_data);
         return NULL;
@@ -197,6 +207,47 @@ load_config (const char *config_path)
         config_data->exclude_extensions = g_strdup (t_str);
     }
     g_free (t_str);
+
+    // Quick check option (default: true)
+    config_error = NULL;
+    t_val_bool = g_key_file_get_boolean (key_file, "scanning", "quick_check", &config_error);
+    if (config_error != NULL) {
+        config_data->quick_check = TRUE; // default to enabled
+        g_clear_error (&config_error);
+    } else {
+        config_data->quick_check = t_val_bool;
+    }
+
+    // Storage type: auto-detect rotational disks unless told otherwise
+    config_data->storage = STORAGE_AUTO;
+    t_str = g_key_file_get_string (key_file, "settings", "storage", NULL);
+    if (t_str != NULL) {
+        if (g_ascii_strcasecmp (t_str, "hdd") == 0) {
+            config_data->storage = STORAGE_HDD;
+        } else if (g_ascii_strcasecmp (t_str, "ssd") == 0) {
+            config_data->storage = STORAGE_SSD;
+        } else if (g_ascii_strcasecmp (t_str, "auto") != 0) {
+            g_log (NULL, G_LOG_LEVEL_WARNING, "Invalid storage value: %s (use auto, hdd or ssd). Using auto.", t_str);
+        }
+        g_free (t_str);
+    }
+
+    t_val = g_key_file_get_integer (key_file, "settings", "prefetch_mb", NULL);
+    config_data->prefetch_mb = (t_val > 0) ? (guint)t_val : 0;
+
+    config_data->low_priority = g_key_file_get_boolean (key_file, "settings", "low_priority", NULL);
+
+    // Rolling scrub: with quick_check on, re-hash a rotating slice of the files on every run so
+    // that each file is fully verified at least every scrub_days days. 0 disables it.
+    t_val = g_key_file_get_integer (key_file, "scanning", "scrub_days", &config_error);
+    if (config_error != NULL) {
+        t_val = DEFAULT_SCRUB_DAYS;
+        g_clear_error (&config_error);
+    } else if (t_val < 0 || t_val > 3650) {
+        g_log (NULL, G_LOG_LEVEL_WARNING, "Invalid scrub_days value: %d. Using the default value instead.", t_val);
+        t_val = DEFAULT_SCRUB_DAYS;
+    }
+    config_data->scrub_days = (guint)t_val;
 
     g_key_file_free (key_file);
 
