@@ -38,6 +38,24 @@ This separation of concerns is efficient because:
 * Hash computation is CPU-intensive and properly parallelized
 * Database writes are batched on a single thread instead of contending on LMDB's single writer lock
 
+## Building and testing
+
+```bash
+# dependencies (Debian/Ubuntu names): cmake pkg-config libxxhash-dev liblmdb-dev libglib2.0-dev
+cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
+cmake --build build
+ctest --test-dir build --output-on-failure   # integration tests, about 30 s, no root needed
+```
+
+The tests (`tests/`) run the real binary against throw-away trees and databases in both storage modes: change detection (content, mtime-restoring tools, chmod, hardlinks, deletes, new files, symlinks, excluded directories), exit codes, JSON output, the rolling scrub (including simulated bit rot), cross-mode hash consistency, database full / incompatible / over-long paths, an unmounted disk during `update`, and files that vanish, change, become a FIFO or get truncated while being read (injected with `LD_PRELOAD` shims). They need `python3`, a C compiler and `strace`; run them directly with `tests/run.sh build/FastFileCheck`. GitHub Actions (`.github/workflows/ci.yml`) runs them with GCC and Clang, and under AddressSanitizer/UBSan and ThreadSanitizer (`FFC_SANITIZER=asan|tsan tests/run.sh ...` does the same locally on a sanitizer build).
+
+## Safety guards
+
+* A run that hit any error (unreadable file or directory, full or incompatible database, over-long path) exits with 2 and says so in the summary.
+* `update` never purges the database entries below a configured directory that could not be opened or contained no files at all (a disk that is not mounted looks exactly like that). They are kept, the run exits with 2 and names the directory; to really drop them, remove the directory from the configuration and run `update` again. `check` still reports such files as missing.
+* A file that changes while it is being read is not judged in that run (the next run sees the new mtime), and one that is truncated cannot crash the program: hashing uses `read()`, never mmap.
+* In `update`, content that changed while size, mtime and ctime did not is treated as corruption and never written into the database.
+
 ## HDD mode
 
 With `storage = auto` (default) FastFileCheck asks the kernel whether the scanned directories live on a rotational device (tested through partitions, LVM/device-mapper and btrfs subvolumes); set `storage = hdd` or `ssd` to force it. In HDD mode:
@@ -46,7 +64,7 @@ With `storage = auto` (default) FastFileCheck asks the kernel whether the scanne
 2. **Only what must be read is queued for the disk.** Files that quick_check can skip (and, in check mode, files the database does not know) cost no data read and bypass the disk queue.
 3. **Disk order.** The files that must be read are collected in windows of 16384, their first physical extent is looked up (`FS_IOC_FIEMAP`; where unsupported, inode order is kept) and they are handed to the workers sorted by it, so the head makes one sweep per window.
 4. **Prefetch with a byte budget.** While the workers hash, the next files are already requested from the kernel (`POSIX_FADV_WILLNEED`) up to a budget (`prefetch_mb`, default 1/8 of usable RAM, 64 MB to 1 GB). The disk always has a deep queue of large, sorted requests; the workers find their data in the page cache. The scanner is also held back so it does not fight the readers for the head.
-5. **Large reads instead of mmap page faults** (4 MB, reused buffer) for hashing.
+5. **Large reads** (4 MB, reused buffer) for hashing. Hashing never uses mmap in any mode: a file truncated while it is being hashed would kill the process with SIGBUS, and `read()` into a reused buffer is also faster (about 5x on 60,000 small cached files, 2x on large ones).
 
 On a btrfs test tree (600 files created in shuffled order, FIEMAP on an SSD) the reads in HDD mode followed the physical order with zero backward jumps, against 303 for the unordered order (head-travel proxy: 812 MiB vs 145,000 MiB). That demonstrates the ordering, not the wall-clock gain, which depends on your disk and on a cold cache: measure with `scripts/bench-hdd.sh`.
 
@@ -91,7 +109,7 @@ Application/config level:
 - Place the LMDB database on a faster device (e.g., SSD) while scanning files from HDD. Set [database].db_path to an SSD-backed directory.
 - Reduce file system noise: disable logging to file if not needed (logging.log_to_file_enabled = false) to cut extra writes.
 - Threads: settings.threads_count = 0 lets FastFileCheck auto-size. With HDD mode the workers only hash cached data, so the default is fine; before HDD mode existed, io_threads = 1 or 2 was the workaround.
-- Adjust RAM usage: settings.ram_usage_percent controls read buffer sizes; higher values can improve streaming reads but leave headroom for the OS page cache.
+- Adjust RAM usage: settings.ram_usage_percent sizes the work queue and, in HDD mode, the default prefetch budget; keep headroom for the OS page cache.
 - Tune scanning scope: use scanning.exclude_directories and scanning.exclude_extensions to skip junk (e.g., caches, logs, temp files).
 
 OS/filesystem level (advanced; test before adopting):

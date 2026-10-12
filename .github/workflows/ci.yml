@@ -1,0 +1,60 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  build-and-test:
+    name: ${{ matrix.cc }} release
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        cc: [gcc, clang]
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y cmake pkg-config libxxhash-dev liblmdb-dev libglib2.0-dev strace ${{ matrix.cc == 'clang' && 'clang' || '' }}
+      - name: Configure
+        run: cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DCMAKE_C_COMPILER=${{ matrix.cc }}
+      - name: Build
+        run: cmake --build build
+      - name: Integration tests
+        run: ctest --test-dir build --output-on-failure
+
+  sanitizers:
+    name: ${{ matrix.sanitizer }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - sanitizer: asan
+            flags: -fsanitize=address,undefined -fno-omit-frame-pointer -g -O1
+            link: -fsanitize=address,undefined
+          - sanitizer: tsan
+            flags: -fsanitize=thread -fno-omit-frame-pointer -g -O1
+            link: -fsanitize=thread
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y cmake pkg-config libxxhash-dev liblmdb-dev libglib2.0-dev strace
+      # Recent runner kernels randomize mmap more than the sanitizer runtimes can handle
+      - name: Lower mmap ASLR entropy
+        run: sudo sysctl -w vm.mmap_rnd_bits=28
+      - name: Configure
+        run: |
+          cmake -S . -B build -DCMAKE_BUILD_TYPE=Debug \
+            -DCMAKE_C_FLAGS="${{ matrix.flags }}" \
+            -DCMAKE_EXE_LINKER_FLAGS="${{ matrix.link }}"
+      - name: Build
+        run: cmake --build build
+      - name: Integration tests under ${{ matrix.sanitizer }}
+        env:
+          FFC_SANITIZER: ${{ matrix.sanitizer }}
+        run: tests/run.sh build/FastFileCheck

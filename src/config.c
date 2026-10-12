@@ -112,7 +112,6 @@ load_config (const char *config_path)
         g_clear_error (&config_error);
     }
     config_data->usable_ram = get_free_memory () * t_val / 100;
-    config_data->max_ram_per_thread = config_data->usable_ram / config_data->threads_count;
 
     t_val = g_key_file_get_integer (key_file, "database", "db_size_mb", NULL);
     if (t_val < 5) {

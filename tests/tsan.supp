@@ -1,0 +1,3 @@
+race:libglib-2.0.so
+race:libgio-2.0.so
+race:libgobject-2.0.so

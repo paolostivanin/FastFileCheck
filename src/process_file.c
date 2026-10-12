@@ -2,7 +2,6 @@
 #include <errno.h>
 #include <fcntl.h>
 #include <string.h>
-#include <sys/mman.h>
 #include <unistd.h>
 #include <sys/stat.h>
 #include <xxhash.h>
@@ -13,10 +12,17 @@
 #include "seen_set.h"
 #include "file_task.h"
 
-#define MMAP_THRESHOLD_RATIO 0.75
-#define MIN_BUFFER_SIZE (10 * 1024 * 1024)  // 10MB
-#define MAX_BUFFER_SIZE (128 * 1024 * 1024) // 128MB
-#define HDD_READ_BUFFER (4 * 1024 * 1024)   // 4MB: big requests, few seeks
+// Files are hashed with read() into one reused buffer per worker thread, never through mmap: a
+// mapping turns a file that is truncated while we hash it into SIGBUS (process death), whereas
+// read() just comes back short and the "changed while reading" check handles it. Reading in chunks
+// that fit the CPU cache also avoids the per-file mmap/munmap cost (TLB shootdowns across threads).
+#ifndef SSD_READ_CHUNK
+#define SSD_READ_CHUNK  (1024 * 1024)       // 1MB: cache friendly
+#endif
+#ifndef HDD_READ_CHUNK
+#define HDD_READ_CHUNK  (4 * 1024 * 1024)   // 4MB: big requests, few seeks
+#endif
+#define READ_BUFFER_SIZE MAX (SSD_READ_CHUNK, HDD_READ_CHUNK)
 
 // Database value (format version 2, see database.h). Fixed-width fields only, so the
 // layout is the same everywhere and there is no padding: 9 * 8 bytes.
@@ -73,15 +79,15 @@ open_noatime (const char *filepath)
 
 
 // One read buffer per worker thread, allocated on first use and freed when the thread exits
-static GPrivate hdd_buffer_key = G_PRIVATE_INIT (g_free);
+static GPrivate read_buffer_key = G_PRIVATE_INIT (g_free);
 
 static guchar *
-get_hdd_buffer (void)
+get_read_buffer (void)
 {
-    guchar *buffer = g_private_get (&hdd_buffer_key);
+    guchar *buffer = g_private_get (&read_buffer_key);
     if (!buffer) {
-        buffer = g_try_malloc (HDD_READ_BUFFER);
-        if (buffer) g_private_set (&hdd_buffer_key, buffer);
+        buffer = g_try_malloc (READ_BUFFER_SIZE);
+        if (buffer) g_private_set (&read_buffer_key, buffer);
     }
     return buffer;
 }
@@ -100,22 +106,23 @@ read_retry (int     fd,
 }
 
 
-// HDD mode: hash with large read()s into a reused buffer. Unlike mmap, where every page fault
-// is a small synchronous request, this gives the kernel (and the disk) big sequential requests,
-// and a file that fits in the buffer costs one read() and no allocation.
+// Hash with read()s of `chunk` bytes into the reused buffer. Compared to mmap, where every page
+// fault is a small synchronous request, this gives the kernel (and an HDD) big sequential requests,
+// and a file that fits in one chunk costs a single read() and no allocation.
 static gboolean
 hash_by_read (int      fd,
               off_t    file_size,
+              size_t   chunk,
               guint64 *hash_out,
               int     *err_out)
 {
-    guchar *buffer = get_hdd_buffer ();
+    guchar *buffer = get_read_buffer ();
     if (!buffer) {
         *err_out = ENOMEM;
         return FALSE;
     }
 
-    ssize_t n = read_retry (fd, buffer, HDD_READ_BUFFER);
+    ssize_t n = read_retry (fd, buffer, chunk);
     if (n < 0) {
         *err_out = errno;
         return FALSE;
@@ -133,7 +140,7 @@ hash_by_read (int      fd,
     XXH3_64bits_reset (state);
     if (n > 0) XXH3_64bits_update (state, buffer, (size_t)n);
 
-    while ((n = read_retry (fd, buffer, HDD_READ_BUFFER)) > 0) {
+    while ((n = read_retry (fd, buffer, chunk)) > 0) {
         XXH3_64bits_update (state, buffer, (size_t)n);
     }
 
@@ -143,73 +150,6 @@ hash_by_read (int      fd,
     } else {
         *err_out = errno;
     }
-    XXH3_freeState (state);
-    return ok;
-}
-
-
-// Hashes the content of an open regular file of `file_size` bytes. The caller closes the fd.
-static gboolean
-hash_fd (int            fd,
-         off_t          file_size,
-         const guint64  per_thread_ram,
-         gboolean       hdd_mode,
-         guint64       *hash_out,
-         int           *err_out)
-{
-    if (hdd_mode) {
-        return hash_by_read (fd, file_size, hash_out, err_out);
-    }
-
-    // Use memory mapping if file size is less than 75% of per-thread RAM
-    if ((gdouble)file_size < ((gdouble)per_thread_ram * MMAP_THRESHOLD_RATIO)) {
-        void *mapped = mmap (NULL, (size_t)file_size, PROT_READ, MAP_PRIVATE, fd, 0);
-        if (mapped != MAP_FAILED) {
-            madvise (mapped, (size_t)file_size, MADV_SEQUENTIAL);
-            *hash_out = XXH3_64bits (mapped, (size_t)file_size);
-            munmap (mapped, (size_t)file_size);
-            return TRUE;
-        }
-    }
-
-    // Fall back to chunked reading
-    const gsize buffer_size = CLAMP(per_thread_ram / 4, MIN_BUFFER_SIZE, MAX_BUFFER_SIZE);
-
-    guchar *buffer = g_try_malloc_n (buffer_size, sizeof(guchar));
-    if (!buffer) {
-        *err_out = ENOMEM;
-        return FALSE;
-    }
-
-    XXH3_state_t *state = XXH3_createState ();
-    if (!state) {
-        *err_out = ENOMEM;
-        g_free (buffer);
-        return FALSE;
-    }
-
-    XXH3_64bits_reset (state);
-
-    gboolean ok = TRUE;
-    while (TRUE) {
-        ssize_t bytes_read = read_retry (fd, buffer, buffer_size);
-        if (bytes_read > 0) {
-            XXH3_64bits_update (state, buffer, (size_t)bytes_read);
-            continue;
-        }
-        if (bytes_read == 0) {
-            break;
-        }
-        *err_out = errno;
-        ok = FALSE;
-        break;
-    }
-
-    if (ok) {
-        *hash_out = XXH3_64bits_digest (state);
-    }
-
-    g_free (buffer);
     XXH3_freeState (state);
     return ok;
 }
@@ -232,7 +172,6 @@ same_size_and_times (const struct stat *a,
 // a consistent snapshot and must not be stored or judged).
 static gboolean
 compute_hash (const char    *filepath,
-              const guint64  per_thread_ram,
               gboolean       hdd_mode,
               guint64       *hash_out,
               struct stat   *st_out,
@@ -263,7 +202,7 @@ compute_hash (const char    *filepath,
     (void)posix_fadvise (fd, 0, 0, POSIX_FADV_SEQUENTIAL);
 #endif
 
-    gboolean ok = hash_fd (fd, st_out->st_size, per_thread_ram, hdd_mode, hash_out, err_out);
+    gboolean ok = hash_by_read (fd, st_out->st_size, hdd_mode ? HDD_READ_CHUNK : SSD_READ_CHUNK, hash_out, err_out);
 
     if (ok) {
         struct stat after;
@@ -371,11 +310,28 @@ lookup_entry (DatabaseData  *db_data,
 }
 
 
+// Index of the empty root that contains `path`, or -1
+static gint
+find_empty_root (const GPtrArray *empty_roots,
+                 const gchar     *path)
+{
+    for (guint i = 0; empty_roots && i < empty_roots->len; i++) {
+        const gchar *root = g_ptr_array_index (empty_roots, i);
+        gsize len = strlen (root);
+        if (strcmp (root, "/") == 0 || (strncmp (path, root, len) == 0 && path[len] == '/')) {
+            return (gint)i;
+        }
+    }
+    return -1;
+}
+
+
 void
-handle_missing_files_from_fs (DatabaseData *db_data,
-                              SummaryData  *summary_data,
-                              SeenSet      *seen,
-                              gboolean      delete_file_from_db)
+handle_missing_files_from_fs (DatabaseData    *db_data,
+                              SummaryData     *summary_data,
+                              SeenSet         *seen,
+                              const GPtrArray *empty_roots,
+                              gboolean         delete_file_from_db)
 {
     MDB_txn *txn;
     MDB_cursor *cursor;
@@ -397,11 +353,25 @@ handle_missing_files_from_fs (DatabaseData *db_data,
         return;
     }
 
+    guint *kept = g_new0 (guint, empty_roots ? empty_roots->len : 0);
+
     while (mdb_cursor_get (cursor, &key, &data, MDB_NEXT) == 0) {
         if (db_is_meta_key (&key)) continue;
 
         // The workers already touched this path during this run, so it exists: no syscall needed.
         if (seen && seen_set_contains (seen, key.mv_data, key.mv_size)) continue;
+
+        // UPDATE must not turn "this directory is empty/unreadable right now" (unmounted disk,
+        // missing mount point) into "every file below it was deleted"
+        if (delete_file_from_db) {
+            gchar *entry_path = g_strndup (key.mv_data, key.mv_size);
+            gint root = find_empty_root (empty_roots, entry_path);
+            g_free (entry_path);
+            if (root >= 0) {
+                kept[root]++;
+                continue;
+            }
+        }
 
         // Not seen: deleted, excluded from the scan, replaced by a symlink/directory, vanished while
         // being read, or its stat failed. Ask the filesystem (without following symlinks: the scanner
@@ -428,6 +398,17 @@ handle_missing_files_from_fs (DatabaseData *db_data,
         g_free (db_filepath);
     }
     mdb_cursor_close (cursor);
+
+    for (guint i = 0; empty_roots && i < empty_roots->len; i++) {
+        if (kept[i] > 0) {
+            g_critical ("%s could not be opened or contains no files, but the database has %u entries below it. "
+                        "It is probably not mounted, so they were KEPT. If those files are really gone, remove "
+                        "the directory from the configuration and run update again.",
+                        (const gchar *)g_ptr_array_index (empty_roots, i), kept[i]);
+            summary_record_error (summary_data);
+        }
+    }
+    g_free (kept);
 
     if (delete_file_from_db) {
         rc = mdb_txn_commit (txn);
@@ -550,8 +531,8 @@ process_file (const FileTask *task,
         guint64 hash = 0;
         struct stat read_st;
         gboolean changed_while_reading;
-        if (!compute_hash (file_path, consumer_data->config_data->max_ram_per_thread,
-                           consumer_data->config_data->hdd_mode, &hash, &read_st, &changed_while_reading, &err)) {
+        if (!compute_hash (file_path, consumer_data->config_data->hdd_mode,
+                           &hash, &read_st, &changed_while_reading, &err)) {
             // Not added to the seen-set: if the file vanished (ENOENT) the missing-file pass must see it
             report_file_error (summary_data, "read", file_path, err);
             return;

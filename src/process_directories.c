@@ -262,7 +262,8 @@ process_directories (gchar         **dirs,
                      guint           max_depth,
                      FileQueueData  *file_queue_data,
                      ConfigData     *config_data,
-                     SummaryData    *summary_data)
+                     SummaryData    *summary_data,
+                     GPtrArray      *empty_roots)
 {
     ProcessContext *ctx = g_try_new0 (ProcessContext, 1);
     if (!ctx) {
@@ -304,9 +305,15 @@ process_directories (gchar         **dirs,
         int fd = open (dirs[i], O_RDONLY | O_DIRECTORY | O_CLOEXEC);
         if (fd < 0) {
             report_dir_error (scan_ctx, dirs[i], "open", errno, FALSE);
+            g_ptr_array_add (empty_roots, g_strdup (dirs[i]));
             continue;
         }
+
+        const guint64 files_before = scan_ctx->next_seq;
         scan_dir (fd, dirs[i], max_depth, ctx, file_queue_data, scan_ctx);
+        if (scan_ctx->next_seq == files_before) {
+            g_ptr_array_add (empty_roots, g_strdup (dirs[i]));
+        }
     }
 
     g_atomic_int_set (&file_queue_data->scanning_done, TRUE);

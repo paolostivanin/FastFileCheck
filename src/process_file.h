@@ -19,7 +19,11 @@ int open_noatime                  (const char *filepath);
 // Reports (CHECK) or removes (UPDATE) database entries whose file no longer exists.
 // `seen` is the set of paths the workers processed in this run; entries in it are known to
 // exist and are not stat()ed again.
+//
+// `empty_roots` (see process_directories.h): in UPDATE mode the entries below those directories are
+// kept and reported as an error, because an unmounted disk would otherwise wipe its whole history.
 void handle_missing_files_from_fs (DatabaseData *db_data,
                                    SummaryData  *summary_data,
                                    SeenSet      *seen,
+                                   const GPtrArray *empty_roots,
                                    gboolean      delete_file_from_db);

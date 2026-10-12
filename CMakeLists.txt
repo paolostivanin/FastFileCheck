@@ -3,7 +3,7 @@ cmake_minimum_required(VERSION 3.20)
 project(FastFileCheck VERSION 1.0.0 LANGUAGES C)
 
 # Pre-release tag (can be empty)
-set(PROJECT_VERSION_SUFFIX "-beta4")
+set(PROJECT_VERSION_SUFFIX "")
 
 # Compose full version (e.g., 1.0.0-beta3). If suffix is empty, it's just the version.
 set(PROJECT_VERSION_FULL "${PROJECT_VERSION}${PROJECT_VERSION_SUFFIX}")
@@ -81,3 +81,9 @@ target_link_libraries(${PROJECT_NAME} PRIVATE
 install(TARGETS ${PROJECT_NAME} DESTINATION ${CMAKE_INSTALL_BINDIR})
 # Never clobber an admin's /etc/ffc.conf: ship the sample next to it
 install(FILES example.conf DESTINATION ${CMAKE_INSTALL_SYSCONFDIR} RENAME ffc.conf.example)
+
+# Integration tests: `ctest --test-dir build --output-on-failure`
+enable_testing()
+add_test(NAME integration
+         COMMAND ${CMAKE_CURRENT_SOURCE_DIR}/tests/run.sh $<TARGET_FILE:${PROJECT_NAME}>)
+set_tests_properties(integration PROPERTIES TIMEOUT 1200)

@@ -250,7 +250,6 @@ main (int argc, char *argv[])
     // Verbose/debug diagnostics
     g_debug ("Threads: %u (worker threads)", config_data->threads_count);
     g_debug ("Usable RAM: %" G_GUINT64_FORMAT " bytes", config_data->usable_ram);
-    g_debug ("Max RAM per thread: %" G_GUINT64_FORMAT " bytes", config_data->max_ram_per_thread);
     g_debug ("DB path: %s (size: %" G_GUINT64_FORMAT " bytes)", config_data->db_path, config_data->db_size_bytes);
     g_debug ("Directories: %s", config_data->directories);
     g_debug ("Max recursion depth: %u", config_data->max_recursion_depth);
@@ -379,7 +378,9 @@ main (int argc, char *argv[])
         progress_thread = g_thread_new ("progress-reporter", progress_reporter, consumer_data);
     }
 
-    process_directories (dirs, config_data->max_recursion_depth, file_queue_data, config_data, consumer_data->summary_data);
+    GPtrArray *empty_roots = g_ptr_array_new_with_free_func (g_free);
+    process_directories (dirs, config_data->max_recursion_depth, file_queue_data, config_data,
+                         consumer_data->summary_data, empty_roots);
     g_strfreev (dirs);
 
     g_thread_join (consumer_thread);
@@ -396,9 +397,9 @@ main (int argc, char *argv[])
     // After an abort the scan is incomplete; do not judge the rest of the database
     gboolean aborted = g_atomic_int_get (&file_queue_data->abort_requested);
     if (!aborted && config_data->mode == MODE_CHECK) {
-        handle_missing_files_from_fs (db_data, consumer_data->summary_data, consumer_data->seen, FALSE);
+        handle_missing_files_from_fs (db_data, consumer_data->summary_data, consumer_data->seen, empty_roots, FALSE);
     } else if (!aborted && config_data->mode == MODE_UPDATE) {
-        handle_missing_files_from_fs (db_data, consumer_data->summary_data, consumer_data->seen, TRUE);
+        handle_missing_files_from_fs (db_data, consumer_data->summary_data, consumer_data->seen, empty_roots, TRUE);
     }
 
     // Completed run: remember when, and where the next scrub slice starts. (Check mode writes
@@ -436,6 +437,7 @@ main (int argc, char *argv[])
         exit_code = EXIT_CHANGES_FOUND;
     }
 
+    g_ptr_array_free (empty_roots, TRUE);
     seen_set_free (consumer_data->seen);
     free_summary (consumer_data->summary_data);
 

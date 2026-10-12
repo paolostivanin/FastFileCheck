@@ -30,7 +30,6 @@ typedef enum storage_kind_t {
 typedef struct config_t {
     guint threads_count;   // size of the hashing worker pool (after io_threads cap)
     guint64 usable_ram;
-    guint64 max_ram_per_thread;
 
     gchar *db_path;
     guint64 db_size_bytes;
