@@ -1,4 +1,4 @@
-cmake_minimum_required(VERSION 3.10)
+cmake_minimum_required(VERSION 3.20)
 
 project(FastFileCheck VERSION 1.0.0 LANGUAGES C)
 
@@ -15,30 +15,16 @@ configure_file(
 )
 
 set(CMAKE_C_STANDARD 11)
-set(CMAKE_C_STANDARD_REQUIRED True)
-set(COMMON_C_FLAGS
-        "-Wall -Wextra -O3 -Wformat=2 -Wmissing-format-attribute -fstack-protector-strong"
-        "-Wundef -Wmissing-format-attribute -fdiagnostics-color=always"
-        "-Wstrict-prototypes -Wunreachable-code -Wchar-subscripts"
-        "-Wwrite-strings -Wpointer-arith -Wbad-function-cast -Wcast-align"
-        "-Werror=format-security -Werror=implicit-function-declaration -Wno-sign-compare"
-        "-U_FORTIFY_SOURCE -D_FORTIFY_SOURCE=3"
-)
+set(CMAKE_C_STANDARD_REQUIRED TRUE)
 
-if(CMAKE_COMPILER_IS_GNUCC OR CMAKE_C_COMPILER_ID STREQUAL "Clang")
-    list(APPEND COMMON_C_FLAGS "-pie -fPIE")
-endif()
-
-string(REPLACE ";" " " COMMON_C_FLAGS "${COMMON_C_FLAGS}")
-set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} ${COMMON_C_FLAGS}")
+include(GNUInstallDirs)
+include(CheckPIESupported)
+check_pie_supported(LANGUAGES C)
 
 find_package(PkgConfig REQUIRED)
 pkg_check_modules(XXHASH REQUIRED libxxhash)
 pkg_check_modules(LMDB REQUIRED lmdb)
 pkg_check_modules(GLIB2 REQUIRED glib-2.0>=2.68.0)
-pkg_check_modules(GIO REQUIRED gio-2.0>=2.68.0)
-
-include_directories(${XXHASH_INCLUDE_DIRS} ${LMDB_INCLUDE_DIRS} ${GLIB2_INCLUDE_DIRS} ${GIO_INCLUDE_DIRS} ${CMAKE_CURRENT_BINARY_DIR}/src)
 
 add_executable(${PROJECT_NAME}
         src/main.c
@@ -49,8 +35,49 @@ add_executable(${PROJECT_NAME}
         src/process_file.c
         src/logging.c
         src/summary.c
+        src/db_writer.c
+        src/seen_set.c
+        src/storage.c
+        src/io_sched.c
 )
 
-target_link_libraries(${PROJECT_NAME} ${XXHASH_LIBRARIES} ${LMDB_LIBRARIES} ${GLIB2_LIBRARIES} ${GIO_LIBRARIES})
+target_include_directories(${PROJECT_NAME} PRIVATE
+        ${XXHASH_INCLUDE_DIRS}
+        ${LMDB_INCLUDE_DIRS}
+        ${GLIB2_INCLUDE_DIRS}
+        ${CMAKE_CURRENT_BINARY_DIR}/src
+)
 
-target_compile_options(${PROJECT_NAME} PRIVATE -Wall -Wextra -O3)
+# O_NOATIME, FS_IOC_FIEMAP helpers, struct stat nanosecond fields, ... need GNU extensions
+target_compile_definitions(${PROJECT_NAME} PRIVATE _GNU_SOURCE)
+
+# -fPIE at compile time and -pie at link time (CMake handles both)
+set_property(TARGET ${PROJECT_NAME} PROPERTY POSITION_INDEPENDENT_CODE TRUE)
+
+target_compile_options(${PROJECT_NAME} PRIVATE
+        -Wall -Wextra -Wformat=2 -Wmissing-format-attribute
+        -fstack-protector-strong -Wundef -fdiagnostics-color=always
+        -Wstrict-prototypes -Wunreachable-code -Wchar-subscripts
+        -Wwrite-strings -Wpointer-arith -Wbad-function-cast -Wcast-align
+        -Werror=format-security -Werror=implicit-function-declaration -Wno-sign-compare
+)
+
+# _FORTIFY_SOURCE needs optimization; CMake's own per-config flags already provide -O3/-g
+target_compile_options(${PROJECT_NAME} PRIVATE
+        "$<$<NOT:$<CONFIG:Debug>>:-U_FORTIFY_SOURCE;-D_FORTIFY_SOURCE=3>"
+)
+
+# Default to Release if not specified
+if(NOT CMAKE_BUILD_TYPE AND NOT CMAKE_CONFIGURATION_TYPES)
+    set(CMAKE_BUILD_TYPE Release CACHE STRING "Build type" FORCE)
+endif()
+
+target_link_libraries(${PROJECT_NAME} PRIVATE
+        ${XXHASH_LIBRARIES}
+        ${LMDB_LIBRARIES}
+        ${GLIB2_LIBRARIES}
+)
+
+install(TARGETS ${PROJECT_NAME} DESTINATION ${CMAKE_INSTALL_BINDIR})
+# Never clobber an admin's /etc/ffc.conf: ship the sample next to it
+install(FILES example.conf DESTINATION ${CMAKE_INSTALL_SYSCONFDIR} RENAME ffc.conf.example)

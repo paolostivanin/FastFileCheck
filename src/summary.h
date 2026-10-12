@@ -7,6 +7,7 @@ typedef struct summary_data_t {
     GHashTable *changed_files;  // filepath -> array of change types
     GMutex mutex;               // protects changed_files and files_with_changes
     guint total_files_processed;
+    guint errors;               // files/dirs/DB writes that could not be handled (atomic)
     guint files_with_changes;
     guint hash_mismatches;
     guint inode_changes;
@@ -38,5 +39,13 @@ void          summary_increment_processed (SummaryData *summary,
 
 guint         summary_get_processed (SummaryData *summary);
 
+void          summary_record_error (SummaryData *summary);
+
+guint         summary_get_errors (SummaryData *summary);
+
 void          print_summary (SummaryData *summary,
                              Mode         mode);
+
+void          print_summary_json (SummaryData *summary,
+                                  Mode         mode,
+                                  gdouble      elapsed_sec);

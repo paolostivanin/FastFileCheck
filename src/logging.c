@@ -35,18 +35,24 @@ log_handler (const gchar    *log_domain __attribute__((unused)),
              const gchar    *message,
              gpointer        user_data)
 {
-    // Always print ERROR and WARNING messages to stderr
-    if (log_level & (G_LOG_LEVEL_ERROR | G_LOG_LEVEL_WARNING)) {
-        g_printerr ("[%s] %s\n", log_level & G_LOG_LEVEL_ERROR ? "ERROR" : "WARNING", message);
+    // Always print ERROR/CRITICAL (runtime failures) and WARNING messages to stderr
+    if (log_level & (G_LOG_LEVEL_ERROR | G_LOG_LEVEL_CRITICAL | G_LOG_LEVEL_WARNING)) {
+        gboolean is_error = (log_level & (G_LOG_LEVEL_ERROR | G_LOG_LEVEL_CRITICAL)) != 0;
+        g_printerr ("[%s] %s\n", is_error ? "ERROR" : "WARNING", message);
     }
 
-    // In verbose mode, also echo INFO/DEBUG/MESSAGE to stdout for live feedback
+    // In verbose mode, also echo INFO/DEBUG/MESSAGE for live feedback.
+    // With --json stdout is reserved for the JSON document, so use stderr there.
     if (user_data) {
         ConfigData *cfg = (ConfigData *)user_data;
         if (cfg->verbose) {
             GLogLevelFlags level = (log_level & G_LOG_LEVEL_MASK);
             if (level == G_LOG_LEVEL_INFO || level == G_LOG_LEVEL_DEBUG || level == G_LOG_LEVEL_MESSAGE) {
-                g_print ("%s\n", message);
+                if (cfg->json_output) {
+                    g_printerr ("%s\n", message);
+                } else {
+                    g_print ("%s\n", message);
+                }
             }
         }
     }
